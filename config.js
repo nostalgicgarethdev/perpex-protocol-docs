@@ -13,7 +13,7 @@ export const BRAND = {
   tagline: "Isolated equity lanes on Robinhood Chain testnet.",
   headline: "Route between tickers and USDG.",
   description:
-    "Each tokenized stock runs in its own reserve lane. Connect a wallet, pick a lane, and exchange against USDG with on-chain quotes.",
+    "Each tokenized stock runs in its own reserve lane — with route intel, lane pulse, portfolio view, and a live on-chain feed built in.",
   url: "https://tickerflux-vercel.vercel.app",
   fee: "0.3%",
 };
@@ -47,6 +47,8 @@ export const LINKS = {
 };
 
 export const SLIPPAGE_BPS = 50;
+export const FEE_BPS = 30;
+export const SLIPPAGE_OPTIONS = [10, 50, 100, 200];
 
 export const SWAP_ABI = [
   "function getPool(address stock) view returns (uint112 reserveStock, uint112 reserveUsdg)",

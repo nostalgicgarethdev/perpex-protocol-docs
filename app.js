@@ -7,10 +7,13 @@ import {
   STOCKS,
   LINKS,
   SLIPPAGE_BPS,
+  FEE_BPS,
+  SLIPPAGE_OPTIONS,
   SWAP_ABI,
   ERC20_ABI,
 } from "./config.js";
 import {
+  getReadProvider,
   getSigner,
   getAccount,
   isConnected,
@@ -43,6 +46,9 @@ const state = {
   liqUsdg: "",
   flash: null,
   walletBusy: false,
+  activity: [],
+  activityLoading: false,
+  myTrades: [],
 };
 
 let poolPollTimer = null;
@@ -62,12 +68,43 @@ function fmt(amount, decimals, digits = 4) {
 
 function route() {
   const raw = location.hash.replace(/^#/, "") || "/";
-  const path = raw.startsWith("/") ? raw : `/${raw}`;
+  const base = raw.split("?")[0];
+  const path = base.startsWith("/") ? base : `/${base}`;
   if (path === "/liquidity") {
     state.liqOpen = true;
     state.terminalTab = "deposit";
   }
   return path;
+}
+
+function applyHashParams() {
+  const hash = location.hash;
+  const qIdx = hash.indexOf("?");
+  if (qIdx === -1) return;
+  const params = new URLSearchParams(hash.slice(qIdx + 1));
+  const stock = params.get("stock");
+  const mode = params.get("mode");
+  const tab = params.get("tab");
+  if (stock) state.stock = STOCKS.find((s) => s.symbol === stock.toUpperCase()) || state.stock;
+  if (mode === "buy" || mode === "sell") state.mode = mode;
+  if (tab === "deposit") {
+    state.terminalTab = "deposit";
+    state.liqOpen = true;
+  } else if (tab === "exchange") {
+    state.terminalTab = "exchange";
+    state.liqOpen = false;
+  }
+}
+
+function syncHashParams() {
+  const path = route();
+  if (path !== "/" && path !== "/liquidity") return;
+  const params = new URLSearchParams();
+  params.set("stock", state.stock.symbol);
+  params.set("mode", state.mode);
+  params.set("tab", state.terminalTab);
+  const target = `#/?${params}`;
+  if (location.hash !== target) history.replaceState(null, "", target);
 }
 
 function setFlash(type, msg) {
@@ -83,8 +120,8 @@ function setFlash(type, msg) {
   }
 }
 
-function swapContract() {
-  const signer = getSigner();
+function swapContract(writable = false) {
+  const signer = writable ? getSigner() : null;
   return new Contract(CONTRACT.address, SWAP_ABI, signer || getReadProvider());
 }
 
@@ -161,6 +198,7 @@ async function onConnectClick() {
     await handleWalletClick();
     await refreshBalances();
     await refreshAllPools();
+    await refreshActivity();
     await refreshQuote();
     setFlash("ok", isOnCorrectChain() ? "Wallet ready on Robinhood testnet." : "Connected — switch to Robinhood testnet.");
   } catch (err) {
@@ -190,12 +228,11 @@ async function executeSwap() {
   state.busy = true;
   render();
   try {
-    const signer = getSigner();
     const quoted = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
     const minOut = (quoted * BigInt(10000 - state.slippage)) / 10000n;
     await approveIfNeeded(tokenIn, rawIn);
     setFlash("ok", "Confirm swap in your wallet…");
-    const tx = await swapContract().connect(signer).swap(
+    const tx = await swapContract(true).swap(
       state.stock.address,
       tokenIn.address,
       rawIn,
@@ -206,6 +243,7 @@ async function executeSwap() {
     state.amountOut = "";
     await refreshBalances();
     await refreshPool();
+    await refreshActivity();
     setFlash("ok", `Swapped ${tokenIn.symbol} → ${tokenOut.symbol}.`);
   } catch (err) {
     setFlash("err", err?.shortMessage || err?.reason || err?.message || "Swap failed.");
@@ -233,11 +271,10 @@ async function executeLiquidity() {
   state.busy = true;
   render();
   try {
-    const signer = getSigner();
     await approveIfNeeded(state.stock, stockAmt);
     await approveIfNeeded(USDG, usdgAmt);
     setFlash("ok", "Confirm liquidity deposit in your wallet…");
-    const tx = await swapContract().connect(signer).addLiquidity(
+    const tx = await swapContract(true).addLiquidity(
       state.stock.address,
       stockAmt,
       usdgAmt
@@ -247,6 +284,7 @@ async function executeLiquidity() {
     state.liqUsdg = "";
     await refreshBalances();
     await refreshAllPools();
+    await refreshActivity();
     setFlash("ok", "Liquidity added.");
   } catch (err) {
     setFlash("err", err?.shortMessage || err?.reason || err?.message || "Liquidity failed.");
@@ -278,6 +316,134 @@ function poolDepthPct(pool = state.pool) {
   const total = Number(pool[0]) + Number(pool[1]);
   if (!total) return 0;
   return Math.min(100, Math.round((Number(pool[1]) / total) * 100));
+}
+
+function midPrice(pool, stock) {
+  if (!pool || pool[0] === 0n) return null;
+  const stockAmt = Number(formatUnits(pool[0], stock.decimals));
+  const usdgAmt = Number(formatUnits(pool[1], USDG.decimals));
+  if (!stockAmt) return null;
+  return usdgAmt / stockAmt;
+}
+
+function spotOutRaw(amountInRaw, reserveIn, reserveOut) {
+  if (!amountInRaw || reserveIn === 0n || reserveOut === 0n) return 0n;
+  const amountInWithFee = (amountInRaw * BigInt(10000 - FEE_BPS)) / 10000n;
+  return (amountInWithFee * reserveOut) / reserveIn;
+}
+
+function priceImpactPct(amountInRaw, amountOutRaw, reserveIn, reserveOut) {
+  const spot = spotOutRaw(amountInRaw, reserveIn, reserveOut);
+  if (!spot || amountOutRaw === 0n) return 0;
+  const impact = ((Number(spot) - Number(amountOutRaw)) / Number(spot)) * 100;
+  return Math.max(0, Math.min(99.9, impact));
+}
+
+function laneHealth(pool) {
+  if (poolEmpty(pool)) return 0;
+  const usdg = Number(formatUnits(pool[1], USDG.decimals));
+  return Math.min(100, Math.round(Math.sqrt(Math.max(usdg, 1)) * 8));
+}
+
+function deepestLane() {
+  let best = null;
+  let bestUsdg = 0;
+  for (const s of STOCKS) {
+    const pool = state.allPools[s.symbol] || [0n, 0n];
+    if (poolEmpty(pool)) continue;
+    const usdg = Number(formatUnits(pool[1], USDG.decimals));
+    if (usdg > bestUsdg) {
+      bestUsdg = usdg;
+      best = s;
+    }
+  }
+  return best ? { stock: best, usdg: bestUsdg } : null;
+}
+
+function routeIntel() {
+  const empty = poolEmpty();
+  const price = midPrice(state.pool, state.stock);
+  if (empty || !state.amountIn || Number(state.amountIn) <= 0 || !state.amountOut) {
+    return {
+      empty,
+      price,
+      impact: 0,
+      minOut: null,
+      rate: null,
+      feeEst: null,
+    };
+  }
+  const tokenIn = state.mode === "buy" ? USDG : state.stock;
+  const tokenOut = state.mode === "buy" ? state.stock : USDG;
+  const rawIn = parseUnits(state.amountIn, tokenIn.decimals);
+  const rawOut = parseUnits(state.amountOut, tokenOut.decimals);
+  const reserveIn = state.mode === "buy" ? state.pool[1] : state.pool[0];
+  const reserveOut = state.mode === "buy" ? state.pool[0] : state.pool[1];
+  const impact = priceImpactPct(rawIn, rawOut, reserveIn, reserveOut);
+  const minOut = (rawOut * BigInt(10000 - state.slippage)) / 10000n;
+  const feeEst = (rawIn * BigInt(FEE_BPS)) / 10000n;
+  const inNum = Number(state.amountIn);
+  const outNum = Number(state.amountOut);
+  const rate = inNum > 0 ? outNum / inNum : null;
+  return { empty, price, impact, minOut, rate, feeEst, tokenIn, tokenOut };
+}
+
+function portfolioSummary() {
+  const account = getAccount();
+  if (!account) return null;
+  const usdgBal = state.balances[USDG.address.toLowerCase()] ?? 0n;
+  let equityUsd = 0;
+  const holdings = STOCKS.map((s) => {
+    const bal = state.balances[s.address.toLowerCase()] ?? 0n;
+    const pool = state.allPools[s.symbol] || [0n, 0n];
+    const price = midPrice(pool, s);
+    const qty = Number(formatUnits(bal, s.decimals));
+    const usd = price ? qty * price : 0;
+    equityUsd += usd;
+    return { stock: s, bal, qty, usd, price };
+  }).filter((h) => h.bal > 0n);
+  const usdg = Number(formatUnits(usdgBal, USDG.decimals));
+  return {
+    holdings,
+    usdg,
+    equityUsd,
+    totalUsd: usdg + equityUsd,
+  };
+}
+
+async function refreshActivity() {
+  state.activityLoading = true;
+  try {
+    const contract = swapContract();
+    const latest = await getReadProvider().getBlockNumber();
+    const from = Math.max(0, latest - 12000);
+    const events = await contract.queryFilter(contract.filters.Swap(), from, latest);
+    const account = getAccount()?.toLowerCase();
+    const parsed = events.slice(-40).reverse().map((ev) => {
+      const stock = STOCKS.find((s) => s.address.toLowerCase() === ev.args.stock.toLowerCase());
+      const tokenInAddr = ev.args.tokenIn.toLowerCase();
+      const isUsdgIn = tokenInAddr === USDG.address.toLowerCase();
+      return {
+        stock,
+        user: ev.args.user,
+        side: isUsdgIn ? "buy" : "sell",
+        amountIn: ev.args.amountIn,
+        amountOut: ev.args.amountOut,
+        tokenIn: isUsdgIn ? USDG : stock,
+        tokenOut: isUsdgIn ? stock : USDG,
+        tx: ev.transactionHash,
+        block: ev.blockNumber,
+        mine: account && ev.args.user.toLowerCase() === account,
+      };
+    });
+    state.activity = parsed.slice(0, 12);
+    state.myTrades = parsed.filter((e) => e.mine).slice(0, 6);
+  } catch {
+    state.activity = [];
+    state.myTrades = [];
+  } finally {
+    state.activityLoading = false;
+  }
 }
 
 const NAV = [
@@ -363,14 +529,137 @@ function laneRailHtml() {
     const pool = state.allPools[s.symbol] || [0n, 0n];
     const active = s.symbol === state.stock.symbol;
     const empty = poolEmpty(pool);
+    const price = midPrice(pool, s);
     return `
       <button class="lane-btn liquid-glass-hover ${active ? "active" : ""}" data-stock="${s.symbol}" type="button">
         <span class="lane-dot" style="background:${s.hue}"></span>
         <span class="lane-sym">${s.symbol}</span>
-        <span class="lane-meta">${empty ? "Unseeded" : `${fmt(pool[1], USDG.decimals, 0)} USDG`}</span>
+        <span class="lane-meta">${empty ? "Unseeded" : price ? `$${price.toFixed(2)}` : "—"}</span>
+        <span class="lane-depth">${empty ? "" : `${fmt(pool[1], USDG.decimals, 0)} USDG`}</span>
       </button>
     `;
   }).join("");
+}
+
+function slippageHtml() {
+  return SLIPPAGE_OPTIONS.map((bps) =>
+    `<button class="slip-pill ${state.slippage === bps ? "active" : ""}" data-slip="${bps}" type="button">${(bps / 100).toFixed(bps < 100 ? 1 : 0)}%</button>`
+  ).join("");
+}
+
+function routeIntelHtml() {
+  const intel = routeIntel();
+  const impactClass = intel.impact >= 5 ? "impact-high" : intel.impact >= 2 ? "impact-mid" : "";
+  if (intel.empty) {
+    return `<div class="route-intel liquid-glass-inset"><p class="route-intel-empty">Route intel unlocks once this lane is seeded.</p></div>`;
+  }
+  return `
+    <div class="route-intel liquid-glass-inset">
+      <div class="route-intel-head">
+        <h3>Route intel</h3>
+        <span class="route-intel-tag">TickerFlux extra</span>
+      </div>
+      <div class="route-intel-grid">
+        <div><span>Mid price</span><strong>${intel.price ? `$${intel.price.toFixed(2)}` : "—"}</strong></div>
+        <div><span>Price impact</span><strong class="${impactClass}">${intel.impact ? `${intel.impact.toFixed(2)}%` : "—"}</strong></div>
+        <div><span>Min received</span><strong>${intel.minOut ? fmt(intel.minOut, intel.tokenOut.decimals, 4) : "—"} ${intel.minOut ? intel.tokenOut.symbol : ""}</strong></div>
+        <div><span>Route fee (~)</span><strong>${intel.feeEst ? fmt(intel.feeEst, intel.tokenIn.decimals, 4) : "—"} ${intel.feeEst ? intel.tokenIn.symbol : ""}</strong></div>
+      </div>
+      ${intel.impact >= 3 ? `<p class="route-intel-warn">High impact — consider a smaller size or a deeper lane.</p>` : ""}
+    </div>
+  `;
+}
+
+function portfolioBarHtml() {
+  const pf = portfolioSummary();
+  if (!pf || (!pf.holdings.length && pf.usdg === 0)) return "";
+  const chips = pf.holdings.map((h) =>
+    `<span class="pf-chip"><span class="lane-dot" style="background:${h.stock.hue}"></span>${h.stock.symbol} <strong>${h.qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong></span>`
+  ).join("");
+  return `
+    <section class="portfolio-bar liquid-glass">
+      <div class="portfolio-head">
+        <h3>Your book</h3>
+        <strong class="portfolio-total">~$${pf.totalUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+      </div>
+      <div class="portfolio-chips">
+        <span class="pf-chip pf-usdg">USDG <strong>${pf.usdg.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></span>
+        ${chips}
+      </div>
+    </section>
+  `;
+}
+
+function lanePulseHtml() {
+  const rows = STOCKS.map((s) => {
+    const pool = state.allPools[s.symbol] || [0n, 0n];
+    const empty = poolEmpty(pool);
+    const price = midPrice(pool, s);
+    const health = laneHealth(pool);
+    const active = s.symbol === state.stock.symbol;
+    return `
+      <tr class="${active ? "pulse-active" : ""}">
+        <td><span class="lane-dot" style="background:${s.hue}"></span>${s.symbol}</td>
+        <td>${empty ? "—" : price ? `$${price.toFixed(2)}` : "—"}</td>
+        <td>${empty ? "—" : fmt(pool[1], USDG.decimals, 0)}</td>
+        <td><span class="health-bar"><span style="width:${health}%"></span></span> ${empty ? "—" : health}</td>
+        <td><button class="btn-text" data-stock="${s.symbol}" type="button">${active ? "Selected" : "Open"}</button></td>
+      </tr>
+    `;
+  }).join("");
+  const deep = deepestLane();
+  return `
+    <section class="lane-pulse liquid-glass">
+      <div class="lane-pulse-head">
+        <div>
+          <h3>Lane pulse</h3>
+          <p>Compare every ticker lane — price, depth, and health at a glance.</p>
+        </div>
+        ${deep ? `<span class="pulse-hint">Deepest lane: <strong>${deep.stock.symbol}</strong> (${deep.usdg.toLocaleString(undefined, { maximumFractionDigits: 0 })} USDG)</span>` : ""}
+      </div>
+      <table class="pulse-table">
+        <thead><tr><th>Ticker</th><th>Mid</th><th>USDG depth</th><th>Health</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function activityRowHtml(ev) {
+  const sym = ev.stock?.symbol || "?";
+  const inSym = ev.tokenIn?.symbol || "?";
+  const outSym = ev.tokenOut?.symbol || "?";
+  return `
+    <div class="activity-row ${ev.mine ? "mine" : ""}">
+      <div class="activity-main">
+        <span class="activity-side ${ev.side}">${ev.side === "buy" ? "IN" : "OUT"}</span>
+        <span><strong>${sym}</strong> · ${fmt(ev.amountIn, ev.tokenIn.decimals, 3)} ${inSym} → ${fmt(ev.amountOut, ev.tokenOut.decimals, 3)} ${outSym}</span>
+      </div>
+      <a class="activity-tx mono" href="${CHAIN.explorer}/tx/${ev.tx}" target="_blank" rel="noreferrer">${shortAddr(ev.tx)}</a>
+    </div>
+  `;
+}
+
+function activityFeedHtml() {
+  const mine = state.myTrades;
+  const feed = state.activity;
+  return `
+    <section class="activity-feed liquid-glass">
+      <div class="activity-head">
+        <h3>Live route feed</h3>
+        <p>Recent swaps pulled live from the AMM contract.</p>
+      </div>
+      ${hasAccount() && mine.length ? `
+        <div class="activity-block">
+          <h4>Your routes</h4>
+          ${mine.map(activityRowHtml).join("")}
+        </div>` : ""}
+      <div class="activity-block">
+        <h4>${state.activityLoading ? "Loading…" : "All lanes"}</h4>
+        ${feed.length ? feed.map(activityRowHtml).join("") : `<p class="activity-empty">No recent swaps yet — seed a lane and be the first.</p>`}
+      </div>
+    </section>
+  `;
 }
 
 function setupStripHtml(account) {
@@ -401,6 +690,7 @@ function renderHome() {
   const balIn = state.balances[tokenIn.address.toLowerCase()];
   const empty = poolEmpty();
   const tab = state.liqOpen ? "deposit" : state.terminalTab;
+  const deep = deepestLane();
 
   renderShell(`
     <section class="page-hero-compact">
@@ -416,6 +706,14 @@ function renderHome() {
         <div class="hero-stat"><span>Chain</span><strong>${CHAIN.id}</strong></div>
       </div>
     </section>
+
+    ${portfolioBarHtml()}
+
+    ${deep && deep.stock.symbol !== state.stock.symbol && state.mode === "buy" ? `
+    <div class="smart-hint liquid-glass-inset">
+      <span>Deeper liquidity in <strong>${deep.stock.symbol}</strong> (${deep.usdg.toLocaleString(undefined, { maximumFractionDigits: 0 })} USDG)</span>
+      <button class="btn-text" data-stock="${deep.stock.symbol}" type="button">Switch lane</button>
+    </div>` : ""}
 
     <section class="trade-terminal liquid-glass" id="trade">
       <div class="terminal-head">
@@ -460,6 +758,13 @@ function renderHome() {
             </div>
           </div>
 
+          ${routeIntelHtml()}
+
+          <div class="slippage-row">
+            <span>Slippage guard</span>
+            <div class="slippage-pills">${slippageHtml()}</div>
+          </div>
+
           ${empty ? `
           <div class="notice">
             <strong>Lane unseeded.</strong> Deposit ${state.stock.symbol} + USDG before routing trades.
@@ -490,17 +795,22 @@ function renderHome() {
       <div class="reserve-strip liquid-glass-inset">
         <div><span>${state.stock.symbol} reserve</span><strong>${fmt(state.pool[0], state.stock.decimals, 2)}</strong></div>
         <div><span>USDG reserve</span><strong>${fmt(state.pool[1], USDG.decimals, 2)}</strong></div>
-        <div><span>Slippage guard</span><strong>${(state.slippage / 100).toFixed(1)}%</strong></div>
-        <div class="reserve-depth"><span>USDG share</span><div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(poolDepthPct(), 8)}%"></div></div></div>
+        <div><span>Mid price</span><strong>${midPrice(state.pool, state.stock) ? `$${midPrice(state.pool, state.stock).toFixed(2)}` : "—"}</strong></div>
+        <div class="reserve-depth"><span>Lane health</span><div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(laneHealth(state.pool), 8)}%"></div></div></div>
       </div>
 
       ${setupStripHtml(account)}
     </section>
 
+    <div class="extras-grid">
+      ${lanePulseHtml()}
+      ${activityFeedHtml()}
+    </div>
+
     <section class="facts">
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Lane isolation</h3><p>Every ticker keeps its own reserve vault — no shared liquidity across symbols.</p></article>
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>On-chain quotes</h3><p>Routes are priced by the deployed AMM contract before you sign.</p></article>
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Wallet-native</h3><p>No accounts or custody layer. You approve, sign, and hold every asset.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Route intel</h3><p>Live price impact, min received, and fee estimate before you sign — not just a blind swap.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Lane pulse</h3><p>Compare every ticker's mid price, USDG depth, and health score side by side.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>On-chain feed</h3><p>Watch recent routes from the contract, plus your own trade history when connected.</p></article>
     </section>
   `);
 
@@ -512,6 +822,14 @@ function bindHomeEvents() {
     btn.addEventListener("click", () => {
       state.terminalTab = btn.dataset.tab;
       state.liqOpen = state.terminalTab === "deposit";
+      syncHashParams();
+      render();
+    });
+  });
+
+  $$("[data-slip]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.slippage = Number(btn.dataset.slip);
       render();
     });
   });
@@ -532,15 +850,18 @@ function bindHomeEvents() {
     render();
   });
 
+  const selectStock = async (symbol) => {
+    state.stock = STOCKS.find((s) => s.symbol === symbol) || STOCKS[0];
+    state.amountIn = "";
+    state.amountOut = "";
+    syncHashParams();
+    await refreshPool();
+    await refreshQuote();
+    render();
+  };
+
   $$("[data-stock]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      state.stock = STOCKS.find((s) => s.symbol === btn.dataset.stock) || STOCKS[0];
-      state.amountIn = "";
-      state.amountOut = "";
-      await refreshPool();
-      await refreshQuote();
-      render();
-    });
+    btn.addEventListener("click", () => selectStock(btn.dataset.stock));
   });
 
   $$("[data-mode]").forEach((btn) => {
@@ -548,6 +869,7 @@ function bindHomeEvents() {
       state.mode = btn.dataset.mode;
       state.amountIn = "";
       state.amountOut = "";
+      syncHashParams();
       await refreshQuote();
       render();
     });
@@ -713,10 +1035,10 @@ function poolCardHtml(s) {
         <span class="pool-status ${empty ? "empty" : "live"}">${empty ? "Empty" : "Live"}</span>
       </div>
       <div class="pool-metrics">
-        <div class="pool-metric"><span>${s.symbol} reserve</span><strong>${fmt(pool[0], s.decimals, 3)}</strong></div>
-        <div class="pool-metric"><span>USDG reserve</span><strong>${fmt(pool[1], USDG.decimals, 2)}</strong></div>
+        <div class="pool-metric"><span>Mid price</span><strong>${empty ? "—" : midPrice(pool, s) ? `$${midPrice(pool, s).toFixed(2)}` : "—"}</strong></div>
+        <div class="pool-metric"><span>USDG depth</span><strong>${fmt(pool[1], USDG.decimals, 2)}</strong></div>
       </div>
-      <div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(poolDepthPct(pool), 6)}%"></div></div>
+      <div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(laneHealth(pool), 6)}%"></div></div>
       <a href="#/" class="btn-secondary" data-goto="${s.symbol}">${empty ? "Seed pool" : "Trade"} ${s.symbol}</a>
     </article>
   `;
@@ -838,7 +1160,7 @@ function renderRoadmap() {
         ${roadmapItem("done", "Phase 01 · Live", "Exchange terminal", "Wallet connect, lane selector, live reserve reads, and routed swaps against the deployed AMM.")}
         ${roadmapItem("done", "Phase 02 · Live", "Reserve dashboard", "Per-lane vault view with depth bars and one-click jump back to the terminal.")}
         ${roadmapItem("active", "Phase 03 · Now", "Lane seeding", "Deposit into remaining empty lanes and grow testnet reserves across all five pairs.")}
-        ${roadmapItem("planned", "Phase 04", "Analytics", "Volume charts, price impact estimator, and historical reserve graphs.")}
+        ${roadmapItem("done", "Phase 04 · Live", "Route analytics", "Price impact, lane pulse board, portfolio book, slippage controls, and live on-chain route feed.")}
         ${roadmapItem("planned", "Phase 05", "More tickers", "Expand as new tokenized equities deploy on Robinhood Chain.")}
         ${roadmapItem("planned", "Phase 06", "Mainnet", "Audits, production config, and deployment when RH Chain mainnet opens.")}
       </ol>
@@ -877,11 +1199,15 @@ function render(opts = {}) {
   }
 }
 
+let pollTick = 0;
+
 function startPoolPolling() {
   clearInterval(poolPollTimer);
   poolPollTimer = setInterval(async () => {
     if (route() !== "/" && route() !== "/liquidity") return;
     await refreshAllPools();
+    pollTick += 1;
+    if (pollTick % 3 === 0) await refreshActivity();
     if (state.amountIn) await refreshQuote();
     render({ refocus: Boolean(document.activeElement?.id === "amount-in") });
   }, 20000);
@@ -891,21 +1217,29 @@ async function init() {
   bindWalletEvents(async () => {
     await refreshBalances();
     await refreshAllPools();
+    await refreshActivity();
     render();
   });
 
+  applyHashParams();
   await restoreSession();
   await refreshAllPools();
+  await refreshActivity();
 
   if (hasAccount()) await refreshBalances();
 
   render();
+  syncHashParams();
   startPoolPolling();
 }
 
 window.addEventListener("hashchange", async () => {
+  applyHashParams();
   render();
-  if (!route().startsWith("/docs")) await refreshAllPools();
+  if (!route().startsWith("/docs")) {
+    await refreshAllPools();
+    if (route() === "/" || route() === "/liquidity") await refreshActivity();
+  }
 });
 
 init();
