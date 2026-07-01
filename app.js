@@ -332,7 +332,7 @@ function renderHome() {
   renderShell(`
     <section class="intro">
       <p class="intro-tag"><span class="tag-dot"></span>Robinhood Chain · Testnet</p>
-      <h1><span class="text-gradient">Tokenized stocks</span>, swapped on the hood.</h1>
+      <h1><span class="text-gradient">Ticker by ticker</span>, swapped onchain.</h1>
       <p class="intro-sub">${BRAND.description}</p>
     </section>
 

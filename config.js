@@ -8,12 +8,12 @@ export const CHAIN = {
 };
 
 export const BRAND = {
-  name: "HoodSwap",
-  short: "HoodSwap",
-  tagline: "Tokenized stocks, swapped on Robinhood Chain.",
+  name: "TickerFlux",
+  short: "TickerFlux",
+  tagline: "Swap tokenized tickers against USDG on Robinhood Chain.",
   description:
     "A minimal AMM for swapping tokenized stocks against USDG on Robinhood Chain testnet. Each listed stock has its own pool paired with USDG.",
-  url: "https://hoodswap-vercel.vercel.app",
+  url: "https://tickerflux-vercel.vercel.app",
 };
 
 export const CONTRACT = {
