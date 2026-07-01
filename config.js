@@ -21,6 +21,10 @@ export const VS_HOODSWAP = [
   { label: "Slippage controls", us: true, them: false },
   { label: "Pin favorite lanes", us: true, them: false },
   { label: "Shareable deep links", us: true, them: false },
+  { label: "24h lane volume", us: true, them: false },
+  { label: "Share route cards", us: true, them: false },
+  { label: "Gas saver / gasless batch", us: true, them: false },
+  { label: "12+ mainnet tickers", us: true, them: false },
 ];
 
 export const SLIPPAGE_BPS = 50;
@@ -70,6 +74,13 @@ const STOCK_HUES = {
   NFLX: "#ef4444",
   NVDA: "#76b900",
   AMD: "#22c55e",
+  AAPL: "#94a3b8",
+  GOOGL: "#4285f4",
+  META: "#1877f2",
+  MSFT: "#00a4ef",
+  SPY: "#8b5cf6",
+  QQQ: "#a855f7",
+  COIN: "#2563eb",
 };
 
 export const NETWORKS = {
@@ -105,10 +116,17 @@ export const NETWORKS = {
     },
     stocks: [
       { symbol: "TSLA", name: "Tesla", address: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d", decimals: 18, hue: STOCK_HUES.TSLA },
-      { symbol: "AMZN", name: "Amazon", address: "0x12f190a9F9d7D37a250758b26824B97CE941bF54", decimals: 18, hue: STOCK_HUES.AMZN },
-      { symbol: "PLTR", name: "Palantir", address: "0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A", decimals: 18, hue: STOCK_HUES.PLTR },
       { symbol: "NVDA", name: "NVIDIA", address: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", decimals: 18, hue: STOCK_HUES.NVDA },
+      { symbol: "AAPL", name: "Apple", address: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", decimals: 18, hue: STOCK_HUES.AAPL },
+      { symbol: "AMZN", name: "Amazon", address: "0x12f190a9F9d7D37a250758b26824B97CE941bF54", decimals: 18, hue: STOCK_HUES.AMZN },
+      { symbol: "GOOGL", name: "Alphabet", address: "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", decimals: 18, hue: STOCK_HUES.GOOGL },
+      { symbol: "META", name: "Meta", address: "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35", decimals: 18, hue: STOCK_HUES.META },
+      { symbol: "MSFT", name: "Microsoft", address: "0xe93237C50D904957Cf27E7B1133b510C669c2e74", decimals: 18, hue: STOCK_HUES.MSFT },
       { symbol: "AMD", name: "AMD", address: "0x86923f96303D656E4aa86D9d42D1e57ad2023fdC", decimals: 18, hue: STOCK_HUES.AMD },
+      { symbol: "PLTR", name: "Palantir", address: "0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A", decimals: 18, hue: STOCK_HUES.PLTR },
+      { symbol: "COIN", name: "Coinbase", address: "0x6330D8C3178a418788dF01a47479c0ce7CCF450b", decimals: 18, hue: STOCK_HUES.COIN },
+      { symbol: "SPY", name: "S&P 500 ETF", address: "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", decimals: 18, hue: STOCK_HUES.SPY },
+      { symbol: "QQQ", name: "Nasdaq 100 ETF", address: "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68", decimals: 18, hue: STOCK_HUES.QQQ },
     ],
     links: {
       bridge: "https://docs.robinhood.com/chain/bridging",

@@ -46,6 +46,14 @@ import {
   bindWalletEvents,
   handleWalletClick,
 } from "./wallet.js";
+import {
+  loadGaslessConfig,
+  isGaslessPreferred,
+  setGaslessPreferred,
+  gaslessSponsorActive,
+  executeWithGaslessOption,
+} from "./gasless.js";
+import { downloadShareCard, shareRouteCard } from "./sharecard.js";
 
 const BRAND = getBrand();
 
@@ -76,6 +84,10 @@ const state = {
   laneStats: {},
   quoteGas: null,
   lastReceipt: null,
+  laneFilter: "",
+  cachedFrom24h: 0,
+  gaslessReady: false,
+  gaslessHint: "",
 };
 
 const PIN_KEY = "tickerflux-pins";
@@ -96,6 +108,18 @@ function togglePinned(symbol) {
   localStorage.setItem(PIN_KEY, JSON.stringify(next));
 }
 
+async function getFromBlock24h() {
+  if (state.cachedFrom24h) return state.cachedFrom24h;
+  try {
+    const provider = getReadProvider();
+    const latest = await provider.getBlockNumber();
+    state.cachedFrom24h = Math.max(0, latest - 43200);
+  } catch {
+    state.cachedFrom24h = 0;
+  }
+  return state.cachedFrom24h;
+}
+
 function sortedStocks() {
   const pins = getPinnedLanes();
   return [...STOCKS].sort((a, b) => {
@@ -106,6 +130,17 @@ function sortedStocks() {
     const bUsdg = state.allPools[b.symbol]?.[1] ?? 0n;
     return Number(bUsdg - aUsdg);
   });
+}
+
+function filteredStocks() {
+  const q = (state.laneFilter || "").trim().toUpperCase();
+  const list = sortedStocks();
+  if (!q) return list;
+  return list.filter((s) => s.symbol.includes(q) || s.name.toUpperCase().includes(q));
+}
+
+function totalVol24h() {
+  return Object.values(state.laneStats).reduce((sum, s) => sum + (s.vol24h || 0), 0);
 }
 
 function shareUrl() {
@@ -378,27 +413,57 @@ async function executeSwap() {
       quoted = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
     }
     const minOut = (quoted * BigInt(10000 - state.slippage)) / 10000n;
-    await approveIfNeeded(tokenIn, rawIn);
-    setFlash("ok", "Confirm swap in your wallet…");
-    let tx;
+    setFlash("ok", isGaslessPreferred() && isUniswapAmm()
+      ? "Confirm batched route in your wallet…"
+      : "Confirm swap in your wallet…");
+
+    let receipt;
     if (isUniswapAmm()) {
-      tx = await executeExactIn(
-        state.stock,
-        tokenIn,
-        rawIn,
-        minOut,
-        state.poolMeta[state.stock.symbol].fee,
-        getAccount()
-      );
+      const fee = state.poolMeta[state.stock.symbol].fee;
+      const account = getAccount();
+      const spender = swapSpender();
+      const allowance = await erc20(tokenIn).allowance(account, spender);
+      const needsApprove = allowance < rawIn;
+      const swapParams = {
+        tokenIn: tokenIn.address,
+        tokenOut: tokenOut.address,
+        fee,
+        recipient: account,
+        amountIn: rawIn,
+        amountOutMinimum: minOut,
+        sqrtPriceLimitX96: 0n,
+      };
+
+      const normalExecute = async () => {
+        await approveIfNeeded(tokenIn, rawIn);
+        const tx = await executeExactIn(state.stock, tokenIn, rawIn, minOut, fee, account);
+        return tx.wait();
+      };
+
+      if (isGaslessPreferred()) {
+        const result = await executeWithGaslessOption({
+          needsApprove,
+          tokenIn,
+          approveAmount: needsApprove ? rawIn : 0n,
+          swapParams,
+          normalExecute,
+        });
+        receipt = result?.hash ? { hash: result.hash } : result;
+      } else {
+        receipt = await normalExecute();
+      }
     } else {
-      tx = await swapContract(true).swap(
+      await approveIfNeeded(tokenIn, rawIn);
+      const tx = await swapContract(true).swap(
         state.stock.address,
         tokenIn.address,
         rawIn,
         minOut
       );
+      receipt = await tx.wait();
     }
-    const receipt = await tx.wait();
+
+    const intel = routeIntel();
     state.lastReceipt = {
       tx: receipt.hash,
       tokenIn,
@@ -407,6 +472,9 @@ async function executeSwap() {
       amountOut: state.amountOut,
       stock: state.stock.symbol,
       side: state.mode,
+      price: intel.price,
+      impact: intel.impact,
+      vol24h: state.laneStats[state.stock.symbol]?.vol24h,
     };
     state.amountIn = "";
     state.amountOut = "";
@@ -598,7 +666,7 @@ async function refreshActivity() {
   state.activityLoading = true;
   try {
     const latest = await getReadProvider().getBlockNumber();
-    const from = Math.max(0, latest - 12000);
+    const from24h = await getFromBlock24h();
     const account = getAccount()?.toLowerCase();
     let parsed = [];
 
@@ -614,14 +682,14 @@ async function refreshActivity() {
             }
           }
           if (!meta?.address || !meta?.token0) return [];
-          const events = await fetchPoolSwapEvents(meta.address, from, latest);
+          const events = await fetchPoolSwapEvents(meta.address, from24h, latest);
           return events.map((ev) => parsePoolSwapEvent(ev, stock, meta.token0)).filter(Boolean);
         })
       );
       parsed = eventGroups.flat();
     } else {
       const contract = swapContract();
-      const events = await contract.queryFilter(contract.filters.Swap(), from, latest);
+      const events = await contract.queryFilter(contract.filters.Swap(), from24h, latest);
       parsed = events.map((ev) => {
         const stock = STOCKS.find((s) => s.address.toLowerCase() === ev.args.stock.toLowerCase());
         const tokenInAddr = ev.args.tokenIn.toLowerCase();
@@ -651,11 +719,10 @@ async function refreshActivity() {
     for (const ev of parsed) {
       const sym = ev.stock?.symbol;
       if (!sym) continue;
-      if (!state.laneStats[sym]) state.laneStats[sym] = { count: 0, usdgVol: 0 };
-      state.laneStats[sym].count += 1;
+      if (!state.laneStats[sym]) state.laneStats[sym] = { count24h: 0, vol24h: 0 };
+      state.laneStats[sym].count24h += 1;
       const usdgRaw = ev.side === "buy" ? ev.amountIn : ev.amountOut;
-      const usdgTok = ev.side === "buy" ? USDG : USDG;
-      state.laneStats[sym].usdgVol += Number(formatUnits(usdgRaw, usdgTok.decimals));
+      state.laneStats[sym].vol24h += Number(formatUnits(usdgRaw, USDG.decimals));
     }
 
     state.activity = parsed.slice(0, 12);
@@ -769,7 +836,7 @@ function bindTopbarScroll() {
 
 function laneRailHtml() {
   const pins = getPinnedLanes();
-  return sortedStocks().map((s) => {
+  return filteredStocks().map((s) => {
     const pool = state.allPools[s.symbol] || [0n, 0n];
     const active = s.symbol === state.stock.symbol;
     const empty = poolEmpty(pool);
@@ -785,7 +852,7 @@ function laneRailHtml() {
         <span class="lane-sym">${s.symbol}</span>
         <span class="lane-meta">${empty ? "Unseeded" : price ? `$${price.toFixed(2)}` : "—"}</span>
         <span class="lane-depth">${empty ? "" : `${fmt(pool[1], USDG.decimals, 0)} USDG`}</span>
-        ${stats?.count ? `<span class="lane-swaps">${stats.count} recent</span>` : ""}
+        ${stats?.vol24h ? `<span class="lane-swaps">$${stats.vol24h.toLocaleString(undefined, { maximumFractionDigits: 0 })} 24h</span>` : ""}
       </button>
     `;
   }).join("");
@@ -843,7 +910,7 @@ function portfolioBarHtml() {
 }
 
 function lanePulseHtml() {
-  const rows = sortedStocks().map((s) => {
+  const rows = filteredStocks().map((s) => {
     const pool = state.allPools[s.symbol] || [0n, 0n];
     const empty = poolEmpty(pool);
     const price = midPrice(pool, s);
@@ -860,7 +927,7 @@ function lanePulseHtml() {
         </td>
         <td>${empty ? "—" : price ? `$${price.toFixed(2)}` : "—"}</td>
         <td>${empty ? "—" : fmt(pool[1], USDG.decimals, 0)}</td>
-        <td>${stats ? `${stats.count} / ${stats.usdgVol.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}</td>
+        <td>${stats ? `${stats.count24h} · $${stats.vol24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}</td>
         <td><span class="health-bar"><span style="width:${health}%"></span></span> ${empty ? "—" : health}</td>
         <td><button class="btn-text" data-stock="${s.symbol}" type="button">${active ? "Selected" : "Open"}</button></td>
       </tr>
@@ -872,12 +939,12 @@ function lanePulseHtml() {
       <div class="lane-pulse-head">
         <div>
           <h3>Lane pulse</h3>
-          <p>Compare every ticker lane — price, depth, and health at a glance.</p>
+          <p>Compare every ticker lane — price, depth, 24h volume, and health.</p>
         </div>
         ${deep ? `<span class="pulse-hint">Deepest lane: <strong>${deep.stock.symbol}</strong> (${deep.usdg.toLocaleString(undefined, { maximumFractionDigits: 0 })} USDG)</span>` : ""}
       </div>
       <table class="pulse-table">
-        <thead><tr><th>Ticker</th><th>Mid</th><th>USDG depth</th><th>Recent routes</th><th>Health</th><th></th></tr></thead>
+        <thead><tr><th>Ticker</th><th>Mid</th><th>USDG depth</th><th>24h vol</th><th>Health</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </section>
@@ -951,9 +1018,66 @@ function swapReceiptHtml() {
         <button class="btn-text" id="dismiss-receipt" type="button">Dismiss</button>
       </div>
       <p>${r.amountIn} ${r.tokenIn.symbol} → ${r.amountOut} ${r.tokenOut.symbol} · ${r.stock} lane</p>
-      <a class="swap-receipt-tx mono" href="${CHAIN.explorer}/tx/${r.tx}" target="_blank" rel="noreferrer">View on explorer · ${shortAddr(r.tx)}</a>
+      <div class="swap-receipt-actions">
+        <a class="swap-receipt-tx mono" href="${CHAIN.explorer}/tx/${r.tx}" target="_blank" rel="noreferrer">Explorer · ${shortAddr(r.tx)}</a>
+        <button class="btn-text" id="share-card-receipt" type="button">Share card</button>
+      </div>
     </div>
   `;
+}
+
+function gaslessToggleHtml() {
+  if (!isUniswapAmm()) return "";
+  const on = isGaslessPreferred();
+  const sponsored = gaslessSponsorActive();
+  const label = sponsored ? "Gasless" : "Gas saver";
+  const hint = sponsored
+    ? "Sponsored gas via Alchemy"
+    : state.gaslessHint || "Batch approve + swap in one wallet confirm";
+  return `
+    <button class="gasless-toggle ${on ? "on" : ""}" id="gasless-toggle" type="button" title="${hint}">
+      <span class="gasless-dot"></span>${label} ${on ? "ON" : "OFF"}
+    </button>
+  `;
+}
+
+async function shareCardFromReceipt() {
+  const r = state.lastReceipt;
+  if (!r) return;
+  await shareRouteCard({
+    stock: r.stock,
+    side: r.side,
+    amountIn: r.amountIn,
+    amountOut: r.amountOut,
+    tokenIn: r.tokenIn.symbol,
+    tokenOut: r.tokenOut.symbol,
+    price: r.price ? r.price.toFixed(2) : null,
+    impact: r.impact ? r.impact.toFixed(2) : null,
+    vol24h: r.vol24h,
+  });
+  setFlash("ok", "Share card downloaded — post it on X.");
+}
+
+async function shareCardFromQuote() {
+  if (!state.amountIn || !state.amountOut) {
+    setFlash("err", "Enter an amount first.");
+    return;
+  }
+  const tokenIn = state.mode === "buy" ? USDG : state.stock;
+  const tokenOut = state.mode === "buy" ? state.stock : USDG;
+  const intel = routeIntel();
+  await downloadShareCard({
+    stock: state.stock.symbol,
+    side: state.mode,
+    amountIn: state.amountIn,
+    amountOut: Number(state.amountOut).toLocaleString(undefined, { maximumFractionDigits: 6 }),
+    tokenIn: tokenIn.symbol,
+    tokenOut: tokenOut.symbol,
+    price: intel.price ? intel.price.toFixed(2) : null,
+    impact: intel.impact ? intel.impact.toFixed(2) : null,
+    vol24h: state.laneStats[state.stock.symbol]?.vol24h,
+  });
+  setFlash("ok", "Share card saved.");
 }
 
 function quickAmountsHtml() {
@@ -1032,7 +1156,7 @@ function renderHome() {
       <div class="hero-stat-grid liquid-glass">
         <div class="hero-stat"><span>Lanes</span><strong>${STOCKS.length}</strong></div>
         <div class="hero-stat"><span>Seeded</span><strong>${countLivePools()}</strong></div>
-        <div class="hero-stat"><span>Route fee</span><strong>${BRAND.fee}</strong></div>
+        <div class="hero-stat"><span>24h volume</span><strong>$${totalVol24h().toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
         <div class="hero-stat"><span>Chain</span><strong>${CHAIN.id}</strong></div>
       </div>
     </section>
@@ -1060,7 +1184,10 @@ function renderHome() {
       </div>
 
       <div class="terminal-body">
-        <nav class="lane-rail" aria-label="Ticker lanes">${laneRailHtml()}</nav>
+        <div class="lane-rail-wrap">
+          <input class="lane-search" id="lane-search" type="search" placeholder="Filter ${STOCKS.length} lanes…" value="${state.laneFilter}" autocomplete="off" />
+          <nav class="lane-rail" aria-label="Ticker lanes">${laneRailHtml()}</nav>
+        </div>
 
         <div class="terminal-panel">
           ${tab === "exchange" ? `
@@ -1071,8 +1198,10 @@ function renderHome() {
 
           <div class="terminal-toolbar">
             <button class="toolbar-btn" id="flip-swap" type="button" title="Flip direction">⇅ Flip</button>
-            <button class="btn-text" id="share-route" type="button">Share route</button>
-            <button class="btn-text" id="refresh-pools" type="button">Refresh lanes</button>
+            ${gaslessToggleHtml()}
+            <button class="btn-text" id="share-route" type="button">Copy link</button>
+            <button class="btn-text" id="share-card" type="button">Share card</button>
+            <button class="btn-text" id="refresh-pools" type="button">Refresh</button>
           </div>
 
           ${quickAmountsHtml()}
@@ -1241,6 +1370,16 @@ function bindHomeEvents() {
   $("#flip-swap")?.addEventListener("click", flipSwap);
   $("#flip-swap-mid")?.addEventListener("click", flipSwap);
   $("#share-route")?.addEventListener("click", copyShareLink);
+  $("#share-card")?.addEventListener("click", shareCardFromQuote);
+  $("#share-card-receipt")?.addEventListener("click", shareCardFromReceipt);
+  $("#gasless-toggle")?.addEventListener("click", () => {
+    setGaslessPreferred(!isGaslessPreferred());
+    render();
+  });
+  $("#lane-search")?.addEventListener("input", (e) => {
+    state.laneFilter = e.target.value;
+    render({ refocus: true });
+  });
   $("#refresh-pools")?.addEventListener("click", async () => {
     await refreshAllPools();
     await refreshActivity();
@@ -1687,6 +1826,10 @@ function startPoolPolling() {
 }
 
 async function init() {
+  const gasCfg = await loadGaslessConfig();
+  state.gaslessReady = Boolean(gasCfg?.gasless || gasCfg?.batch);
+  state.gaslessHint = gasCfg?.hint || "";
+
   bindWalletEvents(async () => {
     await refreshBalances();
     await refreshAllPools();
