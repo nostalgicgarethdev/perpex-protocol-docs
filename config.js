@@ -6,6 +6,8 @@ export const BRAND = {
     "Each tokenized stock runs in its own reserve lane — with route intel, lane pulse, portfolio view, and a live on-chain feed built in.",
   url: "https://tickerflux-vercel.vercel.app",
   fee: "0.3%",
+  tokenCa: "HXqPR3T1oG9sUrTTmGjSrEPjDeUBMcvzjt1iMMp9pump",
+  tokenCaUrl: "https://pump.fun/coin/HXqPR3T1oG9sUrTTmGjSrEPjDeUBMcvzjt1iMMp9pump",
 };
 
 export const SLIPPAGE_BPS = 50;

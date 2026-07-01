@@ -83,6 +83,19 @@ function shortAddr(addr) {
   return addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "";
 }
 
+function shortCa(ca) {
+  return ca ? `${ca.slice(0, 4)}…${ca.slice(-4)}` : "";
+}
+
+function tokenCaHtml(compact = false) {
+  if (!BRAND.tokenCa) return "";
+  const label = compact ? shortCa(BRAND.tokenCa) : BRAND.tokenCa;
+  return `
+    <a class="ca-pill mono" href="${BRAND.tokenCaUrl}" target="_blank" rel="noreferrer" title="${BRAND.tokenCa}">CA ${label}</a>
+    <button class="ca-copy mono copy-ca" type="button" title="Copy contract address">Copy</button>
+  `;
+}
+
 function fmt(amount, decimals, digits = 4) {
   if (amount === undefined || amount === null) return "—";
   const n = Number(formatUnits(amount, decimals));
@@ -612,6 +625,7 @@ function renderShell(content) {
       <footer class="page-foot liquid-glass-subtle">
         <span>${BRAND.name} · ${BRAND.tagline}</span>
         <span class="page-foot-links">
+          <span class="page-foot-ca">${tokenCaHtml()}</span>
           <a href="${BRAND.url}">${BRAND.url.replace("https://", "")}</a>
           <a href="#/pools">Reserves</a>
           <a href="#/faucet">Faucet</a>
@@ -625,6 +639,19 @@ function renderShell(content) {
   $("#switch-chain")?.addEventListener("click", onConnectClick);
   $$("[data-network]").forEach((btn) => {
     btn.addEventListener("click", () => setActiveNetworkKey(btn.dataset.network));
+  });
+  $$(".copy-ca").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!BRAND.tokenCa) return;
+      try {
+        await navigator.clipboard.writeText(BRAND.tokenCa);
+        const prev = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(() => { btn.textContent = prev; }, 1500);
+      } catch {
+        setFlash("err", "Could not copy — select and copy manually.");
+      }
+    });
   });
   bindTopbarScroll();
 }
@@ -813,6 +840,7 @@ function renderHome() {
     <section class="page-hero-compact">
       <div class="page-hero-copy">
         <p class="hero-eyebrow liquid-glass-pill"><span class="tag-dot"></span>${CHAIN.name}</p>
+        ${BRAND.tokenCa ? `<div class="hero-ca">${tokenCaHtml(true)}</div>` : ""}
         <h1 class="page-hero-title">${BRAND.headline}</h1>
         <p class="page-hero-lead">${BRAND.description}</p>
       </div>
