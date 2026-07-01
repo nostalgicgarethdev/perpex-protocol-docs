@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Brand kit — Perpex Protocol Docs</title>
+  <meta name="description" content="Perpex logos, colors, and brand assets for integrations and media." />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰</button>
+    <a href="/" class="brand">
+      <img src="/assets/logo-mark.svg" alt="Perpex" />
+      <div class="brand-text">
+        <span class="brand-name">Perpex Protocol</span>
+        <span class="brand-sub">Developer docs</span>
+      </div>
+    </a>
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="search-input" type="search" placeholder="Search documentation…" autocomplete="off" />
+      <div id="search-results" class="search-results"></div>
+    </div>
+    <div class="header-links">
+      <a href="https://tradeperpex.fun" class="hide-mobile" target="_blank" rel="noopener">App</a>
+      <a href="https://github.com/tradeperpex/tradeperpex" class="hide-mobile" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://tradeperpex.fun/launchpad" class="btn-launch" target="_blank" rel="noopener">Launch</a>
+    </div>
+  </header>
+
+  <div class="docs-shell">
+    <aside class="sidebar" id="sidebar">
+      <nav id="sidebar-nav"></nav>
+    </aside>
+
+    <main class="main">
+      <div class="page-eyebrow">Resources</div>
+      <h1 class="page-title">Brand kit</h1>
+      <p class="lead">
+        Logos, colors, and usage guidelines for Perpex. Use freely in articles, decks, and integration screenshots.
+      </p>
+
+      <div class="content">
+        <h2 id="logos">Logos</h2>
+        <p>Download brand assets from the <a href="https://github.com/tradeperpex/tradeperpex/tree/main/public" target="_blank" rel="noopener">GitHub repository</a>:</p>
+        <div class="card-grid">
+          <a href="/assets/logo.svg" download class="card">
+            <div class="card-icon">◆</div>
+            <h3>Wordmark · SVG</h3>
+            <p>Full Perpex wordmark, scalable vector.</p>
+          </a>
+          <a href="/assets/logo-mark.svg" download class="card">
+            <div class="card-icon">◇</div>
+            <h3>Mark · SVG</h3>
+            <p>Standalone hex mark for avatars and favicons.</p>
+          </a>
+          <a href="/assets/favicon.svg" download class="card">
+            <div class="card-icon">▣</div>
+            <h3>Favicon · SVG</h3>
+            <p>Tab icon, 32×32 optimal.</p>
+          </a>
+        </div>
+
+        <h2 id="palette">Color palette</h2>
+        <div class="stat-row">
+          <div class="stat" style="border-color: rgba(34,211,238,0.3)">
+            <div class="val" style="color:#22d3ee">#22D3EE</div>
+            <div class="key">Cyan accent</div>
+          </div>
+          <div class="stat" style="border-color: rgba(14,158,146,0.3)">
+            <div class="val" style="color:#0e9e92">#0E9E92</div>
+            <div class="key">Teal primary</div>
+          </div>
+          <div class="stat" style="border-color: rgba(52,211,153,0.3)">
+            <div class="val" style="color:#34d399">#34D399</div>
+            <div class="key">Long / up</div>
+          </div>
+          <div class="stat" style="border-color: rgba(251,113,133,0.3)">
+            <div class="val" style="color:#fb7185">#FB7185</div>
+            <div class="key">Short / down</div>
+          </div>
+        </div>
+
+        <h2 id="typography">Typography</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Role</th><th>Font</th><th>Usage</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Display</td><td>Geist / Sora</td><td>Headlines, navigation, UI labels</td></tr>
+              <tr><td>Mono</td><td>Geist Mono / IBM Plex Mono</td><td>Prices, addresses, code blocks</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="guidelines">Usage guidelines</h2>
+        <ul>
+          <li>Do not redraw or distort the wordmark</li>
+          <li>Do not change the accent teal to another color</li>
+          <li>Maintain clear space around the logo equal to the height of the hex mark</li>
+          <li>Use the dark docs theme or light glass theme — avoid clashing backgrounds</li>
+        </ul>
+
+        <h2 id="social">Social handles</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Platform</th><th>Handle</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Website</td><td><a href="https://tradeperpex.fun" target="_blank" rel="noopener">tradeperpex.fun</a></td></tr>
+              <tr><td>X / Twitter</td><td><a href="https://x.com/tradeperpex" target="_blank" rel="noopener">@tradeperpex</a></td></tr>
+              <tr><td>GitHub</td><td><a href="https://github.com/tradeperpex" target="_blank" rel="noopener">github.com/tradeperpex</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <aside class="toc-rail" id="toc-rail"></aside>
+  </div>
+
+  <footer class="site-footer">
+    <span>© 2026 Perpex Protocol · <a href="https://tradeperpex.fun">tradeperpex.fun</a></span>
+    <span>
+      <a href="https://x.com/tradeperpex" target="_blank" rel="noopener">@tradeperpex</a> ·
+      <a href="https://github.com/tradeperpex/tradeperpex" target="_blank" rel="noopener">GitHub</a>
+    </span>
+  </footer>
+
+  <script src="/docs.js"></script>
+</body>
+</html>

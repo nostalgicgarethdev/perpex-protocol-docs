@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Architecture — Perpex Protocol Docs</title>
+  <meta name="description" content="How Perpex is wired together — frontend, API, database, and matching engine." />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰</button>
+    <a href="/" class="brand">
+      <img src="/assets/logo-mark.svg" alt="Perpex" />
+      <div class="brand-text">
+        <span class="brand-name">Perpex Protocol</span>
+        <span class="brand-sub">Developer docs</span>
+      </div>
+    </a>
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="search-input" type="search" placeholder="Search documentation…" autocomplete="off" />
+      <div id="search-results" class="search-results"></div>
+    </div>
+    <div class="header-links">
+      <a href="https://tradeperpex.fun" class="hide-mobile" target="_blank" rel="noopener">App</a>
+      <a href="https://github.com/tradeperpex/tradeperpex" class="hide-mobile" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://tradeperpex.fun/launchpad" class="btn-launch" target="_blank" rel="noopener">Launch</a>
+    </div>
+  </header>
+
+  <div class="docs-shell">
+    <aside class="sidebar" id="sidebar">
+      <nav id="sidebar-nav"></nav>
+    </aside>
+
+    <main class="main">
+      <div class="page-eyebrow">Build</div>
+      <h1 class="page-title">Architecture</h1>
+      <p class="lead">
+        Perpex is a Next.js application backed by Neon Postgres and a dedicated matching engine for mark prices, funding, and liquidations.
+      </p>
+
+      <div class="content">
+        <h2 id="overview">System overview</h2>
+        <pre><code>┌──────────────────────────────┐
+│            Browser           │
+│  Next.js app (React 19)      │
+│  + lightweight-charts        │
+│  + Solana wallet adapter     │
+└─────────────┬────────────────┘
+              │ HTTPS
+              ▼
+┌─────────────────────────────────────────────┐
+│           Next.js route handlers            │
+│  /api/positions  /api/orders  /api/markets  │
+└────────┬──────────────────────┬───────────┘
+         │                        │
+         ▼                        ▼
+┌─────────────────┐    ┌──────────────────────┐
+│  Neon Postgres  │◀──▶│   Perpex engine      │
+│  positions,     │    │  mark, funding,      │
+│  orders,        │    │  liquidations,       │
+│  user_markets   │    │  bonding-curve liq.  │
+└─────────────────┘    └──────────┬───────────┘
+                                  │ RPC
+                                  ▼
+                       ┌──────────────────────┐
+                       │   Solana mainnet     │
+                       └──────────────────────┘</code></pre>
+
+        <h2 id="frontend">Frontend</h2>
+        <p>Three surfaces powered by the Next.js App Router:</p>
+        <ul>
+          <li><strong>Marketing</strong> at <code>/</code> — hero, mechanics, live board, CTA</li>
+          <li><strong>Launchpad board</strong> at <code>/launchpad</code> — sortable market list with positions and history</li>
+          <li><strong>Trading terminal</strong> at <code>/launchpad/[symbol]</code> — chart, order ticket, open positions</li>
+        </ul>
+
+        <h2 id="database">Database</h2>
+        <p>Five Postgres tables managed via <code>scripts/migrate.mjs</code>:</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Table</th><th>Purpose</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>positions</code></td><td>Open and closed positions with TP/SL and liquidation price</td></tr>
+              <tr><td><code>orders</code></td><td>Resting limit and stop orders</td></tr>
+              <tr><td><code>user_markets</code></td><td>Markets created via the launchpad</td></tr>
+              <tr><td><code>demo_balances</code></td><td>Per-wallet demo USDC balance</td></tr>
+              <tr><td><code>demo_deposits</code></td><td>Append-only ledger of on-chain top-ups</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="engine">Matching engine</h2>
+        <p>The Perpex engine handles:</p>
+        <ul>
+          <li><strong>Mark price</strong> — TWAP-blended price stream per market</li>
+          <li><strong>Bonding-curve liquidity</strong> — virtual pool for newborn markets</li>
+          <li><strong>Funding</strong> — periodic long-vs-short imbalance settlement</li>
+          <li><strong>Liquidations</strong> — sub-second monitoring loop</li>
+          <li><strong>Order triggers</strong> — limit, stop, TP/SL execution</li>
+        </ul>
+
+        <h2 id="cross-market">Cross-market safety</h2>
+        <p>
+          A position opened on market <strong>A</strong> must never be settled against market <strong>B</strong>'s mark. Every loop that touches mark price filters by <code>position.token_symbol === currentSymbol</code> before doing anything destructive.
+        </p>
+
+        <h2 id="deployment">Deployment</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Component</th><th>Provider</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Hosting</td><td>Vercel (Next.js native)</td></tr>
+              <tr><td>DNS / TLS</td><td>Cloudflare — <code>tradeperpex.fun</code></td></tr>
+              <tr><td>Database</td><td>Neon Postgres (scale-to-zero)</td></tr>
+              <tr><td>RPC</td><td>Helius primary, public mainnet-beta fallback</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="repo-layout">Repository layout</h2>
+        <pre><code>app/            Next.js routes (App Router)
+  api/          Server route handlers
+  launchpad/    Board + terminal + create flow
+components/     React components
+lib/            DB client, wallet context, utils
+public/         Static assets
+scripts/        SQL migrations
+docs/           Architecture notes</code></pre>
+      </div>
+    </main>
+
+    <aside class="toc-rail" id="toc-rail"></aside>
+  </div>
+
+  <footer class="site-footer">
+    <span>© 2026 Perpex Protocol · <a href="https://tradeperpex.fun">tradeperpex.fun</a></span>
+    <span>
+      <a href="https://x.com/tradeperpex" target="_blank" rel="noopener">@tradeperpex</a> ·
+      <a href="https://github.com/tradeperpex/tradeperpex" target="_blank" rel="noopener">GitHub</a>
+    </span>
+  </footer>
+
+  <script src="/docs.js"></script>
+</body>
+</html>

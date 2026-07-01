@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Perpex">
+  <defs>
+    <linearGradient id="m" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="55%" stop-color="#14C2B2"/>
+      <stop offset="100%" stop-color="#0E9E92"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 3 L42 13.5 V34.5 L24 45 L6 34.5 V13.5 Z" fill="url(#m)"/>
+  <path d="M24 3 L42 13.5 L24 24 L6 13.5 Z" fill="#ffffff" fill-opacity="0.28"/>
+  <path d="M24 24 L42 13.5 V34.5 L24 45 Z" fill="#0B1626" fill-opacity="0.10"/>
+  <path d="M24 24 L24 45 L6 34.5 V13.5 Z" fill="#ffffff" fill-opacity="0.10"/>
+  <path d="M24 12 L31 16 L24 20 L17 16 Z" fill="#ffffff" fill-opacity="0.55"/>
+</svg>

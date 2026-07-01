@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Report an issue — Perpex Protocol Docs</title>
+  <meta name="description" content="Report bugs, security vulnerabilities, and issues with Perpex." />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰</button>
+    <a href="/" class="brand">
+      <img src="/assets/logo-mark.svg" alt="Perpex" />
+      <div class="brand-text">
+        <span class="brand-name">Perpex Protocol</span>
+        <span class="brand-sub">Developer docs</span>
+      </div>
+    </a>
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="search-input" type="search" placeholder="Search documentation…" autocomplete="off" />
+      <div id="search-results" class="search-results"></div>
+    </div>
+    <div class="header-links">
+      <a href="https://tradeperpex.fun" class="hide-mobile" target="_blank" rel="noopener">App</a>
+      <a href="https://github.com/tradeperpex/tradeperpex" class="hide-mobile" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://tradeperpex.fun/launchpad" class="btn-launch" target="_blank" rel="noopener">Launch</a>
+    </div>
+  </header>
+
+  <div class="docs-shell">
+    <aside class="sidebar" id="sidebar">
+      <nav id="sidebar-nav"></nav>
+    </aside>
+
+    <main class="main">
+      <div class="page-eyebrow">Resources</div>
+      <h1 class="page-title">Report an issue</h1>
+      <p class="lead">
+        Found a bug, security vulnerability, or something broken? Here is how to reach the Perpex team.
+      </p>
+
+      <div class="content">
+        <h2 id="security">Security disclosures</h2>
+        <p>
+          Security vulnerabilities should be reported privately. Do not file security issues on public GitHub.
+        </p>
+        <div class="callout warn">
+          <div class="callout-title">Private disclosure only</div>
+          <p>Email <a href="mailto:security@tradeperpex.fun">security@tradeperpex.fun</a> with a detailed description, reproduction steps, and impact assessment. We aim to respond within 48 hours.</p>
+        </div>
+
+        <h2 id="bugs">Bug reports</h2>
+        <p>For non-security bugs, open an issue on GitHub:</p>
+        <ol>
+          <li>Visit <a href="https://github.com/tradeperpex/tradeperpex/issues" target="_blank" rel="noopener">github.com/tradeperpex/tradeperpex/issues</a></li>
+          <li>Choose the bug report template</li>
+          <li>Include wallet address (if relevant), market symbol, steps to reproduce, and screenshots</li>
+        </ol>
+
+        <h2 id="feature-requests">Feature requests</h2>
+        <p>
+          Use the feature request template on <a href="https://github.com/tradeperpex/tradeperpex/issues/new" target="_blank" rel="noopener">GitHub Issues</a> or reach out on <a href="https://x.com/tradeperpex" target="_blank" rel="noopener">@tradeperpex</a>.
+        </p>
+
+        <h2 id="status">Incident status</h2>
+        <p>
+          Incidents and degradations are posted to <a href="https://x.com/tradeperpex" target="_blank" rel="noopener">@tradeperpex</a> in real time. A dedicated status page is planned for v0.2.
+        </p>
+
+        <h2 id="contact">General contact</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Channel</th><th>Address</th><th>Use for</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Security</td><td><a href="mailto:security@tradeperpex.fun">security@tradeperpex.fun</a></td><td>Vulnerabilities, exploits</td></tr>
+              <tr><td>API access</td><td><a href="mailto:api@tradeperpex.fun">api@tradeperpex.fun</a></td><td>Early API access requests</td></tr>
+              <tr><td>General</td><td><a href="mailto:hello@tradeperpex.fun">hello@tradeperpex.fun</a></td><td>Everything else</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="disclosures">Risk disclosures</h2>
+        <p>
+          Perpex is beta software. Trading perpetuals carries the risk of total loss of deposited collateral, and leverage amplifies that risk. Nothing on this site is investment advice. Markets are launched permissionlessly by third parties — the protocol does not endorse or vet any token listed on the launchpad.
+        </p>
+      </div>
+    </main>
+
+    <aside class="toc-rail" id="toc-rail"></aside>
+  </div>
+
+  <footer class="site-footer">
+    <span>© 2026 Perpex Protocol · <a href="https://tradeperpex.fun">tradeperpex.fun</a></span>
+    <span>
+      <a href="https://x.com/tradeperpex" target="_blank" rel="noopener">@tradeperpex</a> ·
+      <a href="https://github.com/tradeperpex/tradeperpex" target="_blank" rel="noopener">GitHub</a>
+    </span>
+  </footer>
+
+  <script src="/docs.js"></script>
+</body>
+</html>

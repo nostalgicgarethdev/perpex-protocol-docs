@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About Perpex — Perpex Protocol Docs</title>
+  <meta name="description" content="Perpex is a permissionless perpetuals layer on Solana. Launch leveraged markets for any SPL token in seconds." />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰</button>
+    <a href="/" class="brand">
+      <img src="/assets/logo-mark.svg" alt="Perpex" />
+      <div class="brand-text">
+        <span class="brand-name">Perpex Protocol</span>
+        <span class="brand-sub">Developer docs</span>
+      </div>
+    </a>
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="search-input" type="search" placeholder="Search documentation…" autocomplete="off" />
+      <div id="search-results" class="search-results"></div>
+    </div>
+    <div class="header-links">
+      <a href="https://tradeperpex.fun" class="hide-mobile" target="_blank" rel="noopener">App</a>
+      <a href="https://github.com/tradeperpex/tradeperpex" class="hide-mobile" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://tradeperpex.fun/launchpad" class="btn-launch" target="_blank" rel="noopener">Launch</a>
+    </div>
+  </header>
+
+  <div class="docs-shell">
+    <aside class="sidebar" id="sidebar">
+      <nav id="sidebar-nav"></nav>
+    </aside>
+
+    <main class="main">
+      <div class="page-eyebrow">Introduction</div>
+      <h1 class="page-title">About Perpex</h1>
+      <p class="lead">
+        <strong>Perpex</strong> is a permissionless perpetuals protocol on Solana — built to let anyone launch a leveraged market for any token that trades, without a listing committee, whitelist, or waiting room.
+      </p>
+
+      <div class="content">
+        <p>
+          Perpex is part of a broader mission to democratize access to derivatives markets. It is designed to enable seamless long and short exposure to any SPL token, with up to <strong>100× isolated leverage</strong>, self-custodied wallets, and markets that go live the moment a launch fee clears.
+        </p>
+
+        <h2 id="start-building">Start building</h2>
+        <div class="card-grid">
+          <a href="/connecting" class="card">
+            <div class="card-icon">◎</div>
+            <h3>Connect your wallet</h3>
+            <p>Phantom, Solflare, or MetaMask — get a demo balance and start trading in under a minute.</p>
+          </a>
+          <a href="https://tradeperpex.fun/launchpad/create" class="card" target="_blank" rel="noopener">
+            <div class="card-icon">⚡</div>
+            <h3>Launch a market</h3>
+            <p>Paste a mint, set leverage and fees, pay 0.3 SOL — your perp is live before the next block.</p>
+          </a>
+        </div>
+
+        <h2 id="built-for-any-token">Built for any token</h2>
+        <p>
+          At its core, Perpex is optimized for <strong>permissionless market creation</strong> — memecoins, DeFi tokens, xStocks, and everything in between. If a token has a price feed, it can have a perp. Markets open with virtual liquidity from a bonding curve, so spreads are tight from minute one.
+        </p>
+
+        <div class="stat-row">
+          <div class="stat"><div class="val">100×</div><div class="key">Max leverage</div></div>
+          <div class="stat"><div class="val">6</div><div class="key">Order types</div></div>
+          <div class="stat"><div class="val">0.3 SOL</div><div class="key">Launch fee</div></div>
+          <div class="stat"><div class="val">10%</div><div class="key">Creator share</div></div>
+        </div>
+
+        <h2 id="built-on-proven-tech">Built on proven technology</h2>
+        <p>
+          The stack leverages <strong>Next.js 16</strong>, <strong>Neon Postgres</strong>, and a dedicated <strong>Perpex matching engine</strong> for mark prices, funding, liquidations, and bonding-curve liquidity. Price data flows through Birdeye; on-chain deposits settle via Solana mainnet.
+        </p>
+
+        <h2 id="open-and-permissionless">Open and permissionless</h2>
+        <p>
+          Perpex is designed to be <strong>permissionless and developer-friendly</strong>. Anyone can connect a wallet, trade existing markets, or launch new ones. The protocol does not gatekeep listings — creators earn 10% of every trading fee for the lifetime of their market.
+        </p>
+
+        <h2 id="beta-available">Beta live on Solana</h2>
+        <p>
+          Perpex is currently in <span class="pill beta">beta</span> on Solana mainnet. Connect through the details on the <a href="/connecting">getting started</a> page, explore markets on the <a href="https://tradeperpex.fun/launchpad" target="_blank" rel="noopener">launchpad</a>, or read the <a href="https://github.com/tradeperpex/tradeperpex" target="_blank" rel="noopener">source on GitHub</a>.
+        </p>
+
+        <div class="callout">
+          <div class="callout-title">Contract address</div>
+          <p><code>GQULNPqzNbEggca8xc2bLjAhyeu22fc58R1EpZYHpump</code></p>
+        </div>
+      </div>
+    </main>
+
+    <aside class="toc-rail" id="toc-rail"></aside>
+  </div>
+
+  <footer class="site-footer">
+    <span>© 2026 Perpex Protocol · <a href="https://tradeperpex.fun">tradeperpex.fun</a></span>
+    <span>
+      <a href="https://x.com/tradeperpex" target="_blank" rel="noopener">@tradeperpex</a> ·
+      <a href="https://github.com/tradeperpex/tradeperpex" target="_blank" rel="noopener">GitHub</a>
+    </span>
+  </footer>
+
+  <script src="/docs.js"></script>
+</body>
+</html>

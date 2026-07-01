@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading guide — Perpex Protocol Docs</title>
+  <meta name="description" content="Order types, risk management, and liquidation mechanics on Perpex." />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <button class="menu-toggle" id="menu-toggle" aria-label="Menu">☰</button>
+    <a href="/" class="brand">
+      <img src="/assets/logo-mark.svg" alt="Perpex" />
+      <div class="brand-text">
+        <span class="brand-name">Perpex Protocol</span>
+        <span class="brand-sub">Developer docs</span>
+      </div>
+    </a>
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="search-input" type="search" placeholder="Search documentation…" autocomplete="off" />
+      <div id="search-results" class="search-results"></div>
+    </div>
+    <div class="header-links">
+      <a href="https://tradeperpex.fun" class="hide-mobile" target="_blank" rel="noopener">App</a>
+      <a href="https://github.com/tradeperpex/tradeperpex" class="hide-mobile" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://tradeperpex.fun/launchpad" class="btn-launch" target="_blank" rel="noopener">Launch</a>
+    </div>
+  </header>
+
+  <div class="docs-shell">
+    <aside class="sidebar" id="sidebar">
+      <nav id="sidebar-nav"></nav>
+    </aside>
+
+    <main class="main">
+      <div class="page-eyebrow">Build</div>
+      <h1 class="page-title">Trading guide</h1>
+      <p class="lead">
+        Six order types, isolated margin, and real-time liquidation monitoring — available on every Perpex market from day one.
+      </p>
+
+      <div class="content">
+        <h2 id="quickstart">Quickstart</h2>
+        <ol>
+          <li>Connect a Solana wallet at <a href="https://tradeperpex.fun/launchpad" target="_blank" rel="noopener">/launchpad</a></li>
+          <li>Select a market from the board or search by symbol</li>
+          <li>Choose <strong>long</strong> or <strong>short</strong>, set collateral and leverage</li>
+          <li>Pick an order type and review your projected liquidation price</li>
+          <li>Sign once — your position opens immediately</li>
+        </ol>
+
+        <h2 id="order-types">Order types</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Type</th><th>Behaviour</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Market</td><td>Fill at best available against virtual + real liquidity</td><td><span class="pill live">Live</span></td></tr>
+              <tr><td>Limit</td><td>Resting order, fills when the oracle crosses your price</td><td><span class="pill live">Live</span></td></tr>
+              <tr><td>Stop-market</td><td>Triggers a market order when the mark hits stop price</td><td><span class="pill beta">Beta</span></td></tr>
+              <tr><td>Take-profit</td><td>Closes the position at a chosen profit level</td><td><span class="pill beta">Beta</span></td></tr>
+              <tr><td>Stop-loss</td><td>Closes the position at a chosen loss level</td><td><span class="pill beta">Beta</span></td></tr>
+              <tr><td>Interpolated entry</td><td>Splits a single fill across N price points over T seconds</td><td><span class="pill live">Live</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout warn">
+          <div class="callout-title">Beta notice</div>
+          <p>Stop and take-profit orders are evaluated client-side during beta — they only fire while the terminal tab is open. A server-side keeper network is the next major release.</p>
+        </div>
+
+        <h2 id="risk">Risk & liquidation</h2>
+        <p>
+          Every position is <strong>isolated</strong>. Margin and PnL are computed against a single position; losses on one market can never spill into another. If margin falls below the maintenance requirement, the position is liquidated.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Tier</th><th>Initial margin</th><th>Maintenance margin</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>≤ 10×</td><td>10%</td><td>5%</td></tr>
+              <tr><td>≤ 25×</td><td>4%</td><td>2%</td></tr>
+              <tr><td>≤ 50×</td><td>2%</td><td>1%</td></tr>
+              <tr><td>≤ 100×</td><td>1%</td><td>0.5%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          Liquidations are processed by the protocol keeper. A <strong>0.5% liquidation fee</strong> is paid from remaining collateral: half to the keeper, half to the insurance fund.
+        </p>
+
+        <h2 id="fees">Fees & limits</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Surface</th><th>Charge</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Trading fee</td><td>3 – 100 bps</td><td>Per side, set by creator at launch</td></tr>
+              <tr><td>Liquidation fee</td><td>0.5%</td><td>Of remaining collateral</td></tr>
+              <tr><td>Funding</td><td>Variable</td><td>Settles hourly, capped at ±0.05% per interval</td></tr>
+              <tr><td>Min position</td><td>$5</td><td>Notional</td></tr>
+              <tr><td>Max position</td><td>$250K</td><td>Per market per wallet during v0.1</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="faq">FAQ</h2>
+        <h3 id="faq-mev">What about MEV?</h3>
+        <p>Order placement is private until inclusion. Market orders settle against the curve, so there is no orderbook for searchers to sandwich in v0.1. Limit orders are batched on settle.</p>
+
+        <h3 id="faq-oracle">What if the price feed goes stale?</h3>
+        <p>If the price feed becomes stale beyond 60 seconds, the market enters protective mode: only reduce-only orders are accepted until a feed is restored or the market is retired.</p>
+
+        <h3 id="faq-why-solana">Why Solana?</h3>
+        <p>Sub-second blocks and fees small enough that the keeper-driven liquidation model is actually viable. The trading engine assumes both.</p>
+      </div>
+    </main>
+
+    <aside class="toc-rail" id="toc-rail"></aside>
+  </div>
+
+  <footer class="site-footer">
+    <span>© 2026 Perpex Protocol · <a href="https://tradeperpex.fun">tradeperpex.fun</a></span>
+    <span>
+      <a href="https://x.com/tradeperpex" target="_blank" rel="noopener">@tradeperpex</a> ·
+      <a href="https://github.com/tradeperpex/tradeperpex" target="_blank" rel="noopener">GitHub</a>
+    </span>
+  </footer>
+
+  <script src="/docs.js"></script>
+</body>
+</html>
