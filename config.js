@@ -10,10 +10,10 @@ export const CHAIN = {
 export const BRAND = {
   name: "TickerFlux",
   short: "TF",
-  tagline: "The flux layer for tokenized equities.",
-  headline: "Swap tickers. Flow liquidity.",
+  tagline: "Isolated equity lanes on Robinhood Chain testnet.",
+  headline: "Route between tickers and USDG.",
   description:
-    "A minimal AMM on Robinhood Chain testnet — each tokenized stock trades against USDG in its own isolated pool.",
+    "Each tokenized stock runs in its own reserve lane. Connect a wallet, pick a lane, and exchange against USDG with on-chain quotes.",
   url: "https://tickerflux-vercel.vercel.app",
   fee: "0.3%",
 };

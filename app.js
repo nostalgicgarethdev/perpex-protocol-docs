@@ -11,13 +11,13 @@ import {
   ERC20_ABI,
 } from "./config.js";
 import {
-  getReadProvider,
   getSigner,
   getAccount,
   isConnected,
+  hasAccount,
+  isOnCorrectChain,
   hasWallet,
   ensureChain,
-  connect,
   disconnect,
   restoreSession,
   bindWalletEvents,
@@ -38,11 +38,14 @@ const state = {
   slippage: SLIPPAGE_BPS,
   busy: false,
   liqOpen: false,
+  terminalTab: "exchange",
   liqStock: "",
   liqUsdg: "",
   flash: null,
   walletBusy: false,
 };
+
+let poolPollTimer = null;
 
 function shortAddr(addr) {
   return addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "";
@@ -60,7 +63,10 @@ function fmt(amount, decimals, digits = 4) {
 function route() {
   const raw = location.hash.replace(/^#/, "") || "/";
   const path = raw.startsWith("/") ? raw : `/${raw}`;
-  if (path === "/liquidity") state.liqOpen = true;
+  if (path === "/liquidity") {
+    state.liqOpen = true;
+    state.terminalTab = "deposit";
+  }
   return path;
 }
 
@@ -148,19 +154,15 @@ async function approveIfNeeded(token, amount) {
 
 async function onConnectClick() {
   if (state.walletBusy) return;
+  if (hasAccount() && isOnCorrectChain()) return;
   state.walletBusy = true;
   render();
   try {
-    const result = await handleWalletClick();
-    if (result === "connected") {
-      await refreshBalances();
-      await refreshAllPools();
-      await refreshQuote();
-      setFlash("ok", "Wallet connected.");
-    } else {
-      state.balances = {};
-      setFlash("ok", "Wallet disconnected.");
-    }
+    await handleWalletClick();
+    await refreshBalances();
+    await refreshAllPools();
+    await refreshQuote();
+    setFlash("ok", isOnCorrectChain() ? "Wallet ready on Robinhood testnet." : "Connected — switch to Robinhood testnet.");
   } catch (err) {
     setFlash("err", err?.shortMessage || err?.message || "Wallet error.");
   } finally {
@@ -218,6 +220,16 @@ async function executeLiquidity() {
   if (!state.liqStock || !state.liqUsdg) return;
   const stockAmt = parseUnits(state.liqStock, state.stock.decimals);
   const usdgAmt = parseUnits(state.liqUsdg, USDG.decimals);
+  const stockBal = state.balances[state.stock.address.toLowerCase()] ?? 0n;
+  const usdgBal = state.balances[USDG.address.toLowerCase()] ?? 0n;
+  if (stockBal < stockAmt) {
+    setFlash("err", `Insufficient ${state.stock.symbol} balance.`);
+    return;
+  }
+  if (usdgBal < usdgAmt) {
+    setFlash("err", "Insufficient USDG balance.");
+    return;
+  }
   state.busy = true;
   render();
   try {
@@ -250,7 +262,8 @@ function swapButtonLabel() {
   if (!state.amountIn || Number(state.amountIn) <= 0) return "Enter amount";
   if (state.busy) return "Processing…";
   if (state.pool[0] === 0n && state.pool[1] === 0n) return "Pool empty";
-  return state.mode === "buy" ? `Buy ${state.stock.symbol}` : `Sell ${state.stock.symbol}`;
+  if (!isOnCorrectChain() && hasAccount()) return "Switch network";
+  return state.mode === "buy" ? `Route USDG → ${state.stock.symbol}` : `Route ${state.stock.symbol} → USDG`;
 }
 
 function poolEmpty(pool = state.pool) {
@@ -267,23 +280,24 @@ function poolDepthPct(pool = state.pool) {
   return Math.min(100, Math.round((Number(pool[1]) / total) * 100));
 }
 
-function tickerTapeHtml() {
-  const items = STOCKS.map((s) => {
-    const pool = state.allPools[s.symbol] || [0n, 0n];
-    const live = !poolEmpty(pool);
-    return `<span class="ticker-item"><span class="ticker-dot" style="background:${s.hue}"></span><span class="ticker-sym">${s.symbol}</span><span>/ USDG</span><span class="ticker-status ${live ? "live" : ""}">${live ? "live" : "empty"}</span></span>`;
-  }).join("");
-  return `<div class="ticker-track">${items}${items}</div>`;
-}
-
 const NAV = [
-  { href: "/", label: "Trade", match: (p) => p === "/" },
-  { href: "/pools", label: "Pools", match: (p) => p === "/pools" },
+  { href: "/", label: "Terminal", match: (p) => p === "/" || p === "/liquidity" },
+  { href: "/pools", label: "Reserves", match: (p) => p === "/pools" },
   { href: "/faucet", label: "Faucet", match: (p) => p === "/faucet" },
   { href: "/docs", label: "Docs", match: (p) => p.startsWith("/docs") },
   { href: "/explorer", label: "Explorer", match: (p) => p === "/explorer" },
   { href: "/roadmap", label: "Roadmap", match: (p) => p === "/roadmap" },
 ];
+
+function chainBannerHtml() {
+  if (!hasAccount() || isOnCorrectChain()) return "";
+  return `
+    <div class="chain-banner" role="status">
+      <span>Wrong network — switch to ${CHAIN.name} (chain ${CHAIN.id}) to sign transactions.</span>
+      <button class="btn-text" id="switch-chain">Switch network</button>
+    </div>
+  `;
+}
 
 function renderShell(content) {
   const path = route();
@@ -300,7 +314,7 @@ function renderShell(content) {
         <div class="mist"></div>
         <div class="noise"></div>
       </div>
-      <div class="ticker-tape liquid-glass-subtle" aria-hidden="true">${tickerTapeHtml()}</div>
+      ${chainBannerHtml()}
       <header class="topbar liquid-glass-nav" id="topbar">
         <a href="#/" class="brand">
           <span class="brand-mark"><img src="/assets/logo-mark.svg" alt="" width="22" height="22" /></span>
@@ -311,8 +325,8 @@ function renderShell(content) {
         </nav>
         <div class="topbar-end">
           <span class="chain-pill">RH · ${CHAIN.id}</span>
-          <button class="wallet-btn ${account ? "on" : ""}" id="connect-btn" ${state.walletBusy ? "disabled" : ""}>
-            ${state.walletBusy ? "…" : account ? shortAddr(account) : "Connect"}
+          <button class="wallet-btn ${hasAccount() && isOnCorrectChain() ? "on" : ""}" id="connect-btn" ${state.walletBusy ? "disabled" : ""}>
+            ${state.walletBusy ? "…" : hasAccount() ? shortAddr(account) : "Connect"}
           </button>
         </div>
       </header>
@@ -321,7 +335,7 @@ function renderShell(content) {
         <span>${BRAND.name} · ${BRAND.tagline}</span>
         <span class="page-foot-links">
           <a href="${BRAND.url}">${BRAND.url.replace("https://", "")}</a>
-          <a href="#/pools">Pools</a>
+          <a href="#/pools">Reserves</a>
           <a href="#/faucet">Faucet</a>
           <a href="${CHAIN.explorer}" target="_blank" rel="noreferrer">Block explorer</a>
         </span>
@@ -330,6 +344,7 @@ function renderShell(content) {
   `;
 
   $("#connect-btn")?.addEventListener("click", onConnectClick);
+  $("#switch-chain")?.addEventListener("click", onConnectClick);
   bindTopbarScroll();
 }
 
@@ -343,54 +358,38 @@ function bindTopbarScroll() {
   onScroll();
 }
 
-function marketStripHtml() {
+function laneRailHtml() {
   return STOCKS.map((s) => {
     const pool = state.allPools[s.symbol] || [0n, 0n];
     const active = s.symbol === state.stock.symbol;
     const empty = poolEmpty(pool);
     return `
-      <button class="market-pill liquid-glass liquid-glass-hover ${active ? "active" : ""}" data-stock="${s.symbol}">
-        <div class="market-pill-top">
-          <span class="market-pill-dot" style="background:${s.hue}"></span>
-          <span class="market-pill-sym">${s.symbol}</span>
-        </div>
-        <div class="market-pill-name">${s.name}</div>
-        <div class="market-pill-meta">${empty ? "Awaiting liquidity" : `${fmt(pool[1], USDG.decimals, 0)} USDG`}</div>
+      <button class="lane-btn liquid-glass-hover ${active ? "active" : ""}" data-stock="${s.symbol}" type="button">
+        <span class="lane-dot" style="background:${s.hue}"></span>
+        <span class="lane-sym">${s.symbol}</span>
+        <span class="lane-meta">${empty ? "Unseeded" : `${fmt(pool[1], USDG.decimals, 0)} USDG`}</span>
       </button>
     `;
   }).join("");
 }
 
-function sidePanelHtml(account) {
-  const depth = poolDepthPct();
-  const empty = poolEmpty();
-  return `
-    <div class="side-stack">
-      <div class="setup-card pool-mini surface-card liquid-glass">
-        <h3>Pool depth</h3>
-        <div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(depth, 8)}%"></div></div>
-        <div class="depth-label">
-          <span>${state.stock.symbol}</span>
-          <span>${fmt(state.pool[0], state.stock.decimals, 2)}</span>
-        </div>
-        <div class="depth-label">
-          <span>USDG</span>
-          <span>${fmt(state.pool[1], USDG.decimals, 2)}</span>
-        </div>
+function setupStripHtml(account) {
+  if (account && isOnCorrectChain()) {
+    return `
+      <div class="setup-strip liquid-glass-inset">
+        <span class="mono">Signed in as ${shortAddr(account)}</span>
+        <button class="btn-text" id="disconnect-btn" type="button">Disconnect</button>
       </div>
-      ${!account ? `
-      <div class="setup-card surface-card liquid-glass">
-        <h3>Get started</h3>
-        <p>Add Robinhood Chain testnet, grab test tokens, then connect.</p>
-        <button class="btn-secondary" id="add-network">Add network</button>
-        <a href="#/faucet" class="btn-text" style="display:block;margin-top:0.5rem">Open faucet guide</a>
-        ${!hasWallet() ? `<p class="setup-warn">No wallet extension detected.</p>` : ""}
-      </div>` : `
-      <div class="setup-card connected-card surface-card liquid-glass">
-        <h3>Connected</h3>
-        <p class="mono">${shortAddr(account)}</p>
-        <button class="btn-text" id="disconnect-btn">Disconnect</button>
-      </div>`}
+    `;
+  }
+  return `
+    <div class="setup-strip liquid-glass-inset">
+      <p>Add Robinhood testnet, claim ETH + USDG, then connect your wallet.</p>
+      <div class="setup-strip-actions">
+        <button class="btn-secondary inline" id="add-network" type="button">Add network</button>
+        <a href="#/faucet" class="btn-text">Faucet guide</a>
+      </div>
+      ${!hasWallet() ? `<p class="setup-warn">No wallet extension detected.</p>` : ""}
     </div>
   `;
 }
@@ -401,51 +400,49 @@ function renderHome() {
   const tokenOut = state.mode === "buy" ? state.stock : USDG;
   const balIn = state.balances[tokenIn.address.toLowerCase()];
   const empty = poolEmpty();
+  const tab = state.liqOpen ? "deposit" : state.terminalTab;
 
   renderShell(`
-    <section class="hero-banner">
-      <div class="hero-glass liquid-glass">
+    <section class="page-hero-compact">
+      <div class="page-hero-copy">
         <p class="hero-eyebrow liquid-glass-pill"><span class="tag-dot"></span>${CHAIN.name}</p>
-        <h1 class="hero-title">${BRAND.headline}</h1>
-        <p class="hero-lead">${BRAND.description}</p>
-        <div class="hero-cta">
-          <a href="#trade" class="btn-hero btn-hero-primary" id="hero-trade">Start trading</a>
-          <a href="#/pools" class="btn-hero btn-hero-glass">View pools</a>
-        </div>
-        <div class="glass-stats-bar liquid-glass-inset">
-          <div class="glass-stat"><span>Markets</span><strong>${STOCKS.length}</strong></div>
-          <div class="glass-stat-divider" aria-hidden="true"></div>
-          <div class="glass-stat"><span>Live pools</span><strong>${countLivePools()}</strong></div>
-          <div class="glass-stat-divider" aria-hidden="true"></div>
-          <div class="glass-stat"><span>Swap fee</span><strong>${BRAND.fee}</strong></div>
-          <div class="glass-stat-divider" aria-hidden="true"></div>
-          <div class="glass-stat"><span>Chain</span><strong>${CHAIN.id}</strong></div>
-        </div>
+        <h1 class="page-hero-title">${BRAND.headline}</h1>
+        <p class="page-hero-lead">${BRAND.description}</p>
+      </div>
+      <div class="hero-stat-grid liquid-glass">
+        <div class="hero-stat"><span>Lanes</span><strong>${STOCKS.length}</strong></div>
+        <div class="hero-stat"><span>Seeded</span><strong>${countLivePools()}</strong></div>
+        <div class="hero-stat"><span>Route fee</span><strong>${BRAND.fee}</strong></div>
+        <div class="hero-stat"><span>Chain</span><strong>${CHAIN.id}</strong></div>
       </div>
     </section>
 
-    <section class="hero-meta">
-      <div class="market-strip">${marketStripHtml()}</div>
-    </section>
+    <section class="trade-terminal liquid-glass" id="trade">
+      <div class="terminal-head">
+        <div>
+          <h2>Exchange terminal</h2>
+          <p>${state.stock.name} lane · ${state.stock.symbol} / USDG · ${BRAND.fee} route fee</p>
+        </div>
+        <div class="terminal-tabs" role="tablist">
+          <button class="terminal-tab ${tab === "exchange" ? "active" : ""}" data-tab="exchange" type="button">Exchange</button>
+          <button class="terminal-tab ${tab === "deposit" ? "active" : ""}" data-tab="deposit" type="button">Deposit</button>
+        </div>
+      </div>
 
-    <div class="bento" id="trade">
-      <section class="trade-panel">
-        <div class="trade-card liquid-glass liquid-glass-hover">
-          <div class="trade-card-head">
-            <div>
-              <h2>${state.stock.symbol} / USDG</h2>
-              <p>${state.stock.name} · ${BRAND.fee} fee · isolated pool</p>
-            </div>
-            <div class="dir-switch">
-              <button class="dir-btn ${state.mode === "buy" ? "active" : ""}" data-mode="buy">Buy</button>
-              <button class="dir-btn ${state.mode === "sell" ? "active" : ""}" data-mode="sell">Sell</button>
-            </div>
+      <div class="terminal-body">
+        <nav class="lane-rail" aria-label="Ticker lanes">${laneRailHtml()}</nav>
+
+        <div class="terminal-panel">
+          ${tab === "exchange" ? `
+          <div class="flow-switch">
+            <button class="flow-btn ${state.mode === "buy" ? "active" : ""}" data-mode="buy" type="button">USDG → ${state.stock.symbol}</button>
+            <button class="flow-btn ${state.mode === "sell" ? "active" : ""}" data-mode="sell" type="button">${state.stock.symbol} → USDG</button>
           </div>
 
           <div class="field">
             <div class="field-top">
-              <label>You pay</label>
-              ${balIn !== undefined && account ? `<button class="field-max" data-max="in">Max ${fmt(balIn, tokenIn.decimals, 2)}</button>` : ""}
+              <label>Send</label>
+              ${balIn !== undefined && account ? `<button class="field-max" data-max="in" type="button">Max ${fmt(balIn, tokenIn.decimals, 2)}</button>` : ""}
             </div>
             <div class="field-row">
               <input id="amount-in" type="text" inputmode="decimal" placeholder="0.00" value="${state.amountIn}" />
@@ -456,57 +453,54 @@ function renderHome() {
           <div class="swap-divider"><span class="swap-arrow" aria-hidden="true"></span></div>
 
           <div class="field">
-            <div class="field-top"><label>You receive</label></div>
+            <div class="field-top"><label>Receive (estimated)</label></div>
             <div class="field-row">
               <input class="readonly" readonly placeholder="0.00" value="${state.amountOut ? Number(state.amountOut).toLocaleString(undefined, { maximumFractionDigits: 6 }) : ""}" />
               <span class="field-token">${tokenOut.symbol}</span>
             </div>
           </div>
 
-          <div class="trade-stats">
-            <div><span>Reserve ${state.stock.symbol}</span><strong>${fmt(state.pool[0], state.stock.decimals, 2)}</strong></div>
-            <div><span>Reserve USDG</span><strong>${fmt(state.pool[1], USDG.decimals, 2)}</strong></div>
-            <div><span>Slippage cap</span><strong>${(state.slippage / 100).toFixed(1)}%</strong></div>
-          </div>
-
           ${empty ? `
           <div class="notice">
-            <strong>Pool empty.</strong> Seed ${state.stock.symbol} + USDG before swapping.
-            <button class="btn-text" id="jump-liq">Add liquidity</button>
+            <strong>Lane unseeded.</strong> Deposit ${state.stock.symbol} + USDG before routing trades.
+            <button class="btn-text" id="jump-liq" type="button">Open deposit tab</button>
           </div>` : ""}
 
-          <button class="btn-primary" id="swap-btn" ${state.busy || state.walletBusy || empty ? "disabled" : ""}>
+          <button class="btn-primary" id="swap-btn" type="button" ${state.busy || state.walletBusy || empty ? "disabled" : ""}>
             ${swapButtonLabel()}
           </button>
+          ` : `
+          <p class="terminal-copy">${empty
+            ? `Seed the ${state.stock.symbol} lane with both assets. Example: 0.1 ${state.stock.symbol} + 10 USDG.`
+            : `Add ${state.stock.symbol} and USDG to deepen this lane's reserves.`}</p>
+          ${empty ? `<p class="terminal-copy"><a href="#/faucet">Get test ETH and USDG</a> before depositing.</p>` : ""}
+          <div class="liq-fields">
+            <label>${state.stock.symbol}<input id="liq-stock" type="text" inputmode="decimal" placeholder="0.1" value="${state.liqStock}" /></label>
+            <label>USDG<input id="liq-usdg" type="text" inputmode="decimal" placeholder="10" value="${state.liqUsdg}" /></label>
+          </div>
+          <button class="btn-primary" id="liq-btn" type="button" ${state.busy || state.walletBusy ? "disabled" : ""}>
+            ${!isConnected() ? "Connect wallet" : state.busy ? "Processing…" : `Deposit into ${state.stock.symbol} lane`}
+          </button>
+          `}
 
           ${state.flash ? `<div class="toast ${state.flash.type}">${state.flash.msg}</div>` : ""}
         </div>
+      </div>
 
-        <details class="liq-details surface-card liquid-glass" id="liquidity" ${state.liqOpen ? "open" : ""}>
-          <summary>Provide liquidity</summary>
-          <div class="liq-body">
-            <p>${empty
-              ? `Seed this pool with both tokens. Try 0.1 ${state.stock.symbol} + 10 USDG.`
-              : "Deposit more stock and USDG to deepen reserves."}</p>
-            ${empty ? `<p class="liq-faucets"><a href="#/faucet">Get test tokens</a></p>` : ""}
-            <div class="liq-fields">
-              <label>${state.stock.symbol}<input id="liq-stock" type="text" inputmode="decimal" placeholder="0.1" value="${state.liqStock}" /></label>
-              <label>USDG<input id="liq-usdg" type="text" inputmode="decimal" placeholder="10" value="${state.liqUsdg}" /></label>
-            </div>
-            <button class="btn-secondary" id="liq-btn" ${state.busy || state.walletBusy ? "disabled" : ""}>
-              ${!isConnected() ? "Connect wallet" : state.busy ? "Processing…" : "Add liquidity"}
-            </button>
-          </div>
-        </details>
-      </section>
+      <div class="reserve-strip liquid-glass-inset">
+        <div><span>${state.stock.symbol} reserve</span><strong>${fmt(state.pool[0], state.stock.decimals, 2)}</strong></div>
+        <div><span>USDG reserve</span><strong>${fmt(state.pool[1], USDG.decimals, 2)}</strong></div>
+        <div><span>Slippage guard</span><strong>${(state.slippage / 100).toFixed(1)}%</strong></div>
+        <div class="reserve-depth"><span>USDG share</span><div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(poolDepthPct(), 8)}%"></div></div></div>
+      </div>
 
-      <aside>${sidePanelHtml(account)}</aside>
-    </div>
+      ${setupStripHtml(account)}
+    </section>
 
     <section class="facts">
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Constant-product AMM</h3><p>x·y = k — ${BRAND.fee} swap fee stays in the pool.</p></article>
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>One pool per ticker</h3><p>TSLA, AMZN, PLTR, NFLX, AMD — each paired independently with USDG.</p></article>
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Self-custody only</h3><p>No accounts or KYC. Your wallet signs every swap and deposit.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Lane isolation</h3><p>Every ticker keeps its own reserve vault — no shared liquidity across symbols.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>On-chain quotes</h3><p>Routes are priced by the deployed AMM contract before you sign.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Wallet-native</h3><p>No accounts or custody layer. You approve, sign, and hold every asset.</p></article>
     </section>
   `);
 
@@ -514,9 +508,12 @@ function renderHome() {
 }
 
 function bindHomeEvents() {
-  $("#hero-trade")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    document.getElementById("trade")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  $$("[data-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.terminalTab = btn.dataset.tab;
+      state.liqOpen = state.terminalTab === "deposit";
+      render();
+    });
   });
 
   $("#add-network")?.addEventListener("click", async () => {
@@ -576,13 +573,11 @@ function bindHomeEvents() {
 
   $("#swap-btn")?.addEventListener("click", executeSwap);
   $("#jump-liq")?.addEventListener("click", () => {
+    state.terminalTab = "deposit";
     state.liqOpen = true;
-    document.getElementById("liquidity")?.setAttribute("open", "");
-    document.getElementById("liquidity")?.scrollIntoView({ behavior: "smooth" });
+    render();
   });
 
-  const liqDetails = $("#liquidity");
-  liqDetails?.addEventListener("toggle", () => { state.liqOpen = liqDetails.open; });
   $("#liq-stock")?.addEventListener("input", (e) => { state.liqStock = e.target.value.replace(/[^0-9.]/g, ""); });
   $("#liq-usdg")?.addEventListener("input", (e) => { state.liqUsdg = e.target.value.replace(/[^0-9.]/g, ""); });
   $("#liq-btn")?.addEventListener("click", executeLiquidity);
@@ -642,8 +637,8 @@ function docsHowTo() {
     <p>Click <strong>Connect</strong> in the header. Approve the connection and ensure you're on ${CHAIN.name}.</p>
     <h2>3. Swap</h2>
     <ol>
-      <li>Select a market from the left panel.</li>
-      <li>Toggle Buy or Sell.</li>
+      <li>Pick a lane in the terminal rail.</li>
+      <li>Choose USDG → ticker or ticker → USDG.</li>
       <li>Enter an amount and confirm in your wallet.</li>
     </ol>
   `;
@@ -675,7 +670,7 @@ function docsArchitecture() {
 
 function docsLiquidity() {
   return `
-    <p>Swaps require both sides of the pool to hold tokens. Use the <strong>Provide liquidity</strong> section on the Markets page.</p>
+    <p>Swaps require both sides of the lane to hold tokens. Use the <strong>Deposit</strong> tab in the terminal.</p>
     <p>Example seed: 0.1 stock + 10 USDG per market.</p>
   `;
 }
@@ -731,8 +726,8 @@ function renderPools() {
   renderShell(`
     <section class="sub-page">
       <div class="sub-header">
-        <h1>Liquidity Pools</h1>
-        <p>${countLivePools()} of ${STOCKS.length} pools seeded on ${CHAIN.name}. Each ticker trades against USDG in isolation.</p>
+        <h1>Reserve lanes</h1>
+        <p>${countLivePools()} of ${STOCKS.length} lanes seeded on ${CHAIN.name}. Each ticker vault pairs independently with USDG.</p>
       </div>
       <div class="pools-grid">
         ${STOCKS.map(poolCardHtml).join("")}
@@ -840,9 +835,9 @@ function renderRoadmap() {
         <p>Where ${BRAND.name} is today and what's coming next on Robinhood Chain testnet.</p>
       </div>
       <ol class="roadmap">
-        ${roadmapItem("done", "Phase 01 · Live", "Trade terminal", "Wallet connect, live pool reads, buy/sell against the deployed AMM — dark UI with ticker tape.")}
-        ${roadmapItem("done", "Phase 02 · Live", "Pools dashboard", "Per-ticker reserve view with depth bars and one-click jump to trade.")}
-        ${roadmapItem("active", "Phase 03 · Now", "Liquidity depth", "Seed remaining empty pools and grow testnet reserves across all five pairs.")}
+        ${roadmapItem("done", "Phase 01 · Live", "Exchange terminal", "Wallet connect, lane selector, live reserve reads, and routed swaps against the deployed AMM.")}
+        ${roadmapItem("done", "Phase 02 · Live", "Reserve dashboard", "Per-lane vault view with depth bars and one-click jump back to the terminal.")}
+        ${roadmapItem("active", "Phase 03 · Now", "Lane seeding", "Deposit into remaining empty lanes and grow testnet reserves across all five pairs.")}
         ${roadmapItem("planned", "Phase 04", "Analytics", "Volume charts, price impact estimator, and historical reserve graphs.")}
         ${roadmapItem("planned", "Phase 05", "More tickers", "Expand as new tokenized equities deploy on Robinhood Chain.")}
         ${roadmapItem("planned", "Phase 06", "Mainnet", "Audits, production config, and deployment when RH Chain mainnet opens.")}
@@ -882,6 +877,16 @@ function render(opts = {}) {
   }
 }
 
+function startPoolPolling() {
+  clearInterval(poolPollTimer);
+  poolPollTimer = setInterval(async () => {
+    if (route() !== "/" && route() !== "/liquidity") return;
+    await refreshAllPools();
+    if (state.amountIn) await refreshQuote();
+    render({ refocus: Boolean(document.activeElement?.id === "amount-in") });
+  }, 20000);
+}
+
 async function init() {
   bindWalletEvents(async () => {
     await refreshBalances();
@@ -892,9 +897,10 @@ async function init() {
   await restoreSession();
   await refreshAllPools();
 
-  if (isConnected()) await refreshBalances();
+  if (hasAccount()) await refreshBalances();
 
   render();
+  startPoolPolling();
 }
 
 window.addEventListener("hashchange", async () => {

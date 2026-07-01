@@ -8,7 +8,7 @@ let account = null;
 let chainOk = false;
 
 export function getReadProvider() {
-  return walletProvider || readProvider;
+  return readProvider;
 }
 
 export function getSigner() {
@@ -20,7 +20,15 @@ export function getAccount() {
 }
 
 export function isConnected() {
+  return Boolean(account && signer && chainOk);
+}
+
+export function hasAccount() {
   return Boolean(account && signer);
+}
+
+export function isOnCorrectChain() {
+  return chainOk;
 }
 
 export function hasWallet() {
@@ -96,6 +104,14 @@ export async function restoreSession() {
   signer = await walletProvider.getSigner();
   account = accounts[0].toLowerCase();
   await verifyChainId();
+  if (!chainOk) {
+    try {
+      await switchToChain();
+      await verifyChainId();
+    } catch {
+      /* wallet may still be on the wrong chain */
+    }
+  }
   return account;
 }
 
@@ -108,16 +124,23 @@ export function bindWalletEvents(onChange) {
       return;
     }
     account = accounts[0].toLowerCase();
-    if (walletProvider) signer = await walletProvider.getSigner();
+    if (walletProvider) {
+      signer = await walletProvider.getSigner();
+      await verifyChainId();
+    }
     onChange();
   });
   window.ethereum.on("chainChanged", () => location.reload());
 }
 
 export async function handleWalletClick() {
-  if (isConnected()) {
-    await disconnect();
-    return "disconnected";
+  if (hasAccount()) {
+    if (!chainOk) {
+      await switchToChain();
+      await verifyChainId();
+      if (!chainOk) throw new Error(`Switch to ${CHAIN.name} (chain ${CHAIN.id}) in your wallet.`);
+    }
+    return "connected";
   }
   await connect();
   return "connected";
