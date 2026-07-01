@@ -552,11 +552,81 @@ input { font: inherit; color: var(--text); }
   border-color: rgba(201, 111, 82, 0.32);
 }
 
-.hero-ca {
+.ca-banner {
+  position: relative;
+  z-index: 44;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem 1rem;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid rgba(201, 111, 82, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(247, 245, 242, 0.55));
+}
+
+.ca-banner-left {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.55rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.ca-banner-badge {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #fff;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  box-shadow: 0 4px 14px rgba(34, 197, 94, 0.28);
+}
+
+.ca-banner-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.ca-banner-addr {
+  font-size: clamp(0.88rem, 2.4vw, 1.12rem);
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: 0.01em;
+  word-break: break-all;
+  text-align: center;
+  max-width: min(100%, 720px);
+  transition: color 0.15s ease;
+}
+
+.ca-banner-addr:hover {
+  color: var(--accent);
+}
+
+.ca-banner-copy {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(201, 111, 82, 0.28);
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ca-banner-copy:hover {
+  border-color: rgba(201, 111, 82, 0.45);
+  background: #fff;
 }
 
 /* ── Chain warning ── */
@@ -2405,6 +2475,23 @@ input { font: inherit; color: var(--text); }
 }
 
 @media (max-width: 640px) {
+  .ca-banner {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.75rem 0.9rem;
+    gap: 0.55rem;
+  }
+
+  .ca-banner-left { justify-content: center; }
+
+  .ca-banner-addr {
+    font-size: 0.78rem;
+    max-width: 100%;
+    padding: 0.35rem 0;
+  }
+
+  .ca-banner-copy { width: 100%; text-align: center; }
+
   .topbar { padding: 0.65rem 0.9rem; }
   .page { padding: 1.25rem 0.9rem 2rem; }
   .liq-fields { grid-template-columns: 1fr; }

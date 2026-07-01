@@ -149,6 +149,20 @@ function tokenCaHtml(compact = false) {
   `;
 }
 
+function caBannerHtml() {
+  if (!BRAND.tokenCa) return "";
+  return `
+    <div class="ca-banner liquid-glass-subtle">
+      <div class="ca-banner-left">
+        <span class="ca-banner-badge">Pump.fun</span>
+        <span class="ca-banner-label">CA</span>
+      </div>
+      <a class="ca-banner-addr mono" href="${BRAND.tokenCaUrl}" target="_blank" rel="noreferrer" title="Open on Pump.fun">${BRAND.tokenCa}</a>
+      <button class="ca-banner-copy copy-ca" type="button">Copy CA</button>
+    </div>
+  `;
+}
+
 function fmt(amount, decimals, digits = 4) {
   if (amount === undefined || amount === null) return "—";
   const n = Number(formatUnits(amount, decimals));
@@ -689,6 +703,7 @@ function renderShell(content) {
         <div class="noise"></div>
       </div>
       ${chainBannerHtml()}
+      ${caBannerHtml()}
       <header class="topbar liquid-glass-nav" id="topbar">
         <a href="#/" class="brand">
           <span class="brand-mark"><img src="/assets/logo-mark.svg" alt="" width="22" height="22" /></span>
@@ -1011,7 +1026,6 @@ function renderHome() {
     <section class="page-hero-compact">
       <div class="page-hero-copy">
         <p class="hero-eyebrow liquid-glass-pill"><span class="tag-dot"></span>${CHAIN.name}</p>
-        ${BRAND.tokenCa ? `<div class="hero-ca">${tokenCaHtml(true)}</div>` : ""}
         <h1 class="page-hero-title">${BRAND.headline}</h1>
         <p class="page-hero-lead">${BRAND.description}</p>
       </div>
