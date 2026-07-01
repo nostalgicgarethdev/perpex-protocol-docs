@@ -331,9 +331,9 @@ function renderHome() {
 
   renderShell(`
     <section class="intro">
-      <p class="intro-tag"><span class="tag-dot"></span>Spot · Testnet</p>
-      <h1><span class="text-gradient">Tokenized equities</span>, swapped onchain.</h1>
-      <p class="intro-sub">Trade tokenized equities against USDG on Robinhood Chain. Connect a wallet, pick a market, swap.</p>
+      <p class="intro-tag"><span class="tag-dot"></span>Robinhood Chain · Testnet</p>
+      <h1><span class="text-gradient">Tokenized stocks</span>, swapped on the hood.</h1>
+      <p class="intro-sub">${BRAND.description}</p>
     </section>
 
     <div class="trade-layout">
@@ -540,7 +540,7 @@ function renderDocs() {
 
 function docsOverview() {
   return `
-    <p>Perpex Spot exchanges tokenized equities against USDG on Robinhood Chain testnet. Connect any EVM wallet — no registration.</p>
+    <p>${BRAND.name} is a minimal AMM on ${CHAIN.name}. Swap tokenized equities against USDG — each ticker has its own pool. Connect any EVM wallet, no registration.</p>
     <h2>Requirements</h2>
     <ul>
       <li><strong>ETH</strong> for gas</li>
@@ -669,7 +669,7 @@ function renderRoadmap() {
     <section class="sub-page">
       <div class="sub-header">
         <h1>Roadmap</h1>
-        <p>Where Perpex Spot is today and what's coming next on Robinhood Chain testnet.</p>
+        <p>Where ${BRAND.name} is today and what's coming next on Robinhood Chain testnet.</p>
       </div>
       <ol class="roadmap">
         ${roadmapItem("done", "Phase 01 · Live", "Swap interface", "Five stock/USDG markets, wallet connect, live pool reads, and on-chain swaps against the deployed AMM contract.")}

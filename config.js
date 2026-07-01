@@ -8,8 +8,12 @@ export const CHAIN = {
 };
 
 export const BRAND = {
-  name: "Perpex",
-  tagline: "Tokenized equities, swapped onchain.",
+  name: "HoodSwap",
+  short: "HoodSwap",
+  tagline: "Tokenized stocks, swapped on Robinhood Chain.",
+  description:
+    "A minimal AMM for swapping tokenized stocks against USDG on Robinhood Chain testnet. Each listed stock has its own pool paired with USDG.",
+  url: "https://hoodswap-vercel.vercel.app",
 };
 
 export const CONTRACT = {
