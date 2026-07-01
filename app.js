@@ -293,10 +293,13 @@ function renderShell(content) {
     <div class="app">
       <div class="ambient" aria-hidden="true">
         <div class="aurora"></div>
+        <div class="glass-blob glass-blob-a"></div>
+        <div class="glass-blob glass-blob-b"></div>
+        <div class="glass-blob glass-blob-c"></div>
         <div class="noise"></div>
       </div>
-      <div class="ticker-tape" aria-hidden="true">${tickerTapeHtml()}</div>
-      <header class="topbar">
+      <div class="ticker-tape liquid-glass-subtle" aria-hidden="true">${tickerTapeHtml()}</div>
+      <header class="topbar liquid-glass-nav" id="topbar">
         <a href="#/" class="brand">
           <span class="brand-mark"><img src="/assets/logo-mark.svg" alt="" width="22" height="22" /></span>
           <span>${BRAND.name}</span>
@@ -312,7 +315,7 @@ function renderShell(content) {
         </div>
       </header>
       <main class="page page-enter">${content}</main>
-      <footer class="page-foot">
+      <footer class="page-foot liquid-glass-subtle">
         <span>${BRAND.name} · ${BRAND.tagline}</span>
         <span class="page-foot-links">
           <a href="${BRAND.url}">${BRAND.url.replace("https://", "")}</a>
@@ -325,6 +328,17 @@ function renderShell(content) {
   `;
 
   $("#connect-btn")?.addEventListener("click", onConnectClick);
+  bindTopbarScroll();
+}
+
+function bindTopbarScroll() {
+  const topbar = document.getElementById("topbar");
+  if (!topbar) return;
+  const onScroll = () => topbar.classList.toggle("topbar-scrolled", window.scrollY > 20);
+  window.removeEventListener("scroll", topbar._scrollFn);
+  topbar._scrollFn = onScroll;
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
 }
 
 function marketStripHtml() {
@@ -333,7 +347,7 @@ function marketStripHtml() {
     const active = s.symbol === state.stock.symbol;
     const empty = poolEmpty(pool);
     return `
-      <button class="market-pill ${active ? "active" : ""}" data-stock="${s.symbol}">
+      <button class="market-pill liquid-glass liquid-glass-hover ${active ? "active" : ""}" data-stock="${s.symbol}">
         <div class="market-pill-top">
           <span class="market-pill-dot" style="background:${s.hue}"></span>
           <span class="market-pill-sym">${s.symbol}</span>
@@ -350,7 +364,7 @@ function sidePanelHtml(account) {
   const empty = poolEmpty();
   return `
     <div class="side-stack">
-      <div class="setup-card pool-mini surface-card">
+      <div class="setup-card pool-mini surface-card liquid-glass">
         <h3>Pool depth</h3>
         <div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(depth, 8)}%"></div></div>
         <div class="depth-label">
@@ -363,14 +377,14 @@ function sidePanelHtml(account) {
         </div>
       </div>
       ${!account ? `
-      <div class="setup-card surface-card">
+      <div class="setup-card surface-card liquid-glass">
         <h3>Get started</h3>
         <p>Add Robinhood Chain testnet, grab test tokens, then connect.</p>
         <button class="btn-secondary" id="add-network">Add network</button>
         <a href="#/faucet" class="btn-text" style="display:block;margin-top:0.5rem">Open faucet guide</a>
         ${!hasWallet() ? `<p class="setup-warn">No wallet extension detected.</p>` : ""}
       </div>` : `
-      <div class="setup-card connected-card surface-card">
+      <div class="setup-card connected-card surface-card liquid-glass">
         <h3>Connected</h3>
         <p class="mono">${shortAddr(account)}</p>
         <button class="btn-text" id="disconnect-btn">Disconnect</button>
@@ -388,29 +402,33 @@ function renderHome() {
 
   renderShell(`
     <section class="hero-banner">
-      <div class="hero-glass">
-        <p class="hero-eyebrow"><span class="tag-dot"></span>${CHAIN.name}</p>
+      <div class="hero-glass liquid-glass">
+        <p class="hero-eyebrow liquid-glass-pill"><span class="tag-dot"></span>${CHAIN.name}</p>
         <h1 class="hero-title">${BRAND.headline}</h1>
         <p class="hero-lead">${BRAND.description}</p>
         <div class="hero-cta">
           <a href="#trade" class="btn-hero btn-hero-primary" id="hero-trade">Start trading</a>
-          <a href="#/pools" class="btn-hero btn-hero-secondary">View pools</a>
+          <a href="#/pools" class="btn-hero btn-hero-glass">View pools</a>
+        </div>
+        <div class="glass-stats-bar liquid-glass-inset">
+          <div class="glass-stat"><span>Markets</span><strong>${STOCKS.length}</strong></div>
+          <div class="glass-stat-divider" aria-hidden="true"></div>
+          <div class="glass-stat"><span>Live pools</span><strong>${countLivePools()}</strong></div>
+          <div class="glass-stat-divider" aria-hidden="true"></div>
+          <div class="glass-stat"><span>Swap fee</span><strong>${BRAND.fee}</strong></div>
+          <div class="glass-stat-divider" aria-hidden="true"></div>
+          <div class="glass-stat"><span>Chain</span><strong>${CHAIN.id}</strong></div>
         </div>
       </div>
     </section>
 
     <section class="hero-meta">
-      <div class="stat-row">
-        <div class="stat-chip"><span>Markets</span><strong>${STOCKS.length}</strong></div>
-        <div class="stat-chip"><span>Live pools</span><strong>${countLivePools()}</strong></div>
-        <div class="stat-chip"><span>Swap fee</span><strong>${BRAND.fee}</strong></div>
-      </div>
       <div class="market-strip">${marketStripHtml()}</div>
     </section>
 
     <div class="bento" id="trade">
       <section class="trade-panel">
-        <div class="trade-card">
+        <div class="trade-card liquid-glass liquid-glass-hover">
           <div class="trade-card-head">
             <div>
               <h2>${state.stock.symbol} / USDG</h2>
@@ -462,7 +480,7 @@ function renderHome() {
           ${state.flash ? `<div class="toast ${state.flash.type}">${state.flash.msg}</div>` : ""}
         </div>
 
-        <details class="liq-details surface-card" id="liquidity" ${state.liqOpen ? "open" : ""}>
+        <details class="liq-details surface-card liquid-glass" id="liquidity" ${state.liqOpen ? "open" : ""}>
           <summary>Provide liquidity</summary>
           <div class="liq-body">
             <p>${empty
@@ -484,9 +502,9 @@ function renderHome() {
     </div>
 
     <section class="facts">
-      <article class="fact surface-card"><h3>Constant-product AMM</h3><p>x·y = k — ${BRAND.fee} swap fee stays in the pool.</p></article>
-      <article class="fact surface-card"><h3>One pool per ticker</h3><p>TSLA, AMZN, PLTR, NFLX, AMD — each paired independently with USDG.</p></article>
-      <article class="fact surface-card"><h3>Self-custody only</h3><p>No accounts or KYC. Your wallet signs every swap and deposit.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Constant-product AMM</h3><p>x·y = k — ${BRAND.fee} swap fee stays in the pool.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>One pool per ticker</h3><p>TSLA, AMZN, PLTR, NFLX, AMD — each paired independently with USDG.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Self-custody only</h3><p>No accounts or KYC. Your wallet signs every swap and deposit.</p></article>
     </section>
   `);
 
@@ -689,7 +707,7 @@ function poolCardHtml(s) {
   const empty = poolEmpty(pool);
   const active = s.symbol === state.stock.symbol;
   return `
-    <article class="pool-card" style="${active ? "border-color:rgba(20,184,166,0.35)" : ""}">
+    <article class="pool-card liquid-glass liquid-glass-hover" style="${active ? "border-color:rgba(20,184,166,0.35)" : ""}">
       <div class="pool-card-head">
         <div class="pool-card-ticker">
           <span class="market-pill-dot" style="background:${s.hue}"></span>
@@ -742,20 +760,20 @@ function renderFaucet() {
         <p>Grab gas and USDG before your first swap on ${BRAND.name}.</p>
       </div>
       <div class="faucet-grid">
-        <article class="faucet-card">
+        <article class="faucet-card liquid-glass liquid-glass-hover">
           <span class="faucet-tag">ETH</span>
           <h3>ETH for gas</h3>
           <p>Robinhood Chain testnet ETH covers swap and liquidity transactions.</p>
           <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer" class="btn-primary inline">Open ETH faucet</a>
         </article>
-        <article class="faucet-card">
+        <article class="faucet-card liquid-glass liquid-glass-hover">
           <span class="faucet-tag">USDG</span>
           <h3>USDG stablecoin</h3>
           <p>USDG is the quote asset for every stock pool. Mint test USDG via Paxos.</p>
           <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer" class="btn-primary inline">Open USDG faucet</a>
         </article>
       </div>
-      <article class="sub-body surface-card">
+      <article class="sub-body surface-card liquid-glass">
         <h2>Setup checklist</h2>
         <ol class="steps-list">
           <li>Install MetaMask or any EVM wallet extension.</li>
