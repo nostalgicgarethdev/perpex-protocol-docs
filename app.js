@@ -709,7 +709,7 @@ function poolCardHtml(s) {
   const empty = poolEmpty(pool);
   const active = s.symbol === state.stock.symbol;
   return `
-    <article class="pool-card liquid-glass liquid-glass-hover" style="${active ? "border-color:rgba(20,184,166,0.35)" : ""}">
+    <article class="pool-card liquid-glass liquid-glass-hover" style="${active ? "border-color:rgba(139,92,246,0.4)" : ""}">
       <div class="pool-card-head">
         <div class="pool-card-ticker">
           <span class="market-pill-dot" style="background:${s.hue}"></span>
