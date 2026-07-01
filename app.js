@@ -1,4 +1,4 @@
-import { BrowserProvider, Contract, formatUnits, parseUnits } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
+import { Contract, formatUnits, parseUnits } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
 import {
   BRAND,
   CHAIN,
@@ -10,15 +10,22 @@ import {
   SWAP_ABI,
   ERC20_ABI,
 } from "./config.js";
-
-const ACCENT = "#0E9E92";
-const ACCENT_BRIGHT = "#14C2B2";
+import {
+  getReadProvider,
+  getSigner,
+  getAccount,
+  isConnected,
+  hasWallet,
+  ensureChain,
+  connect,
+  disconnect,
+  restoreSession,
+  bindWalletEvents,
+  handleWalletClick,
+} from "./wallet.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
-
-let provider = null;
-let signer = null;
-let account = null;
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 const state = {
   stock: STOCKS[0],
@@ -26,6 +33,7 @@ const state = {
   amountIn: "",
   amountOut: "",
   pool: [0n, 0n],
+  allPools: {},
   balances: {},
   slippage: SLIPPAGE_BPS,
   busy: false,
@@ -33,6 +41,7 @@ const state = {
   liqStock: "",
   liqUsdg: "",
   flash: null,
+  walletBusy: false,
 };
 
 function shortAddr(addr) {
@@ -51,82 +60,53 @@ function fmt(amount, decimals, digits = 4) {
 function route() {
   const raw = location.hash.replace(/^#/, "") || "/";
   const path = raw.startsWith("/") ? raw : `/${raw}`;
-  if (path === "/provide-liquidity") state.liqOpen = true;
+  if (path === "/liquidity") state.liqOpen = true;
   return path;
 }
 
 function setFlash(type, msg) {
   state.flash = msg ? { type, msg } : null;
   render();
-  if (msg) setTimeout(() => { if (state.flash?.msg === msg) { state.flash = null; render(); } }, 6000);
-}
-
-async function ensureChain() {
-  if (!window.ethereum) throw new Error("No wallet found. Install MetaMask or another EVM wallet.");
-  await window.ethereum.request({
-    method: "wallet_addEthereumChain",
-    params: [{
-      chainId: CHAIN.hexId,
-      chainName: CHAIN.name,
-      nativeCurrency: CHAIN.currency,
-      rpcUrls: [CHAIN.rpc],
-      blockExplorerUrls: [CHAIN.explorer],
-    }],
-  });
-}
-
-async function switchChain() {
-  try {
-    await window.ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: CHAIN.hexId }],
-    });
-  } catch (err) {
-    if (err?.code === 4902) await ensureChain();
-    else throw err;
-  }
-}
-
-async function connectWallet() {
-  try {
-    if (!window.ethereum) {
-      setFlash("err", "Install MetaMask or another EVM wallet to connect.");
-      return;
-    }
-    await switchChain();
-    provider = new BrowserProvider(window.ethereum);
-    const accounts = await provider.send("eth_requestAccounts", []);
-    signer = await provider.getSigner();
-    account = accounts[0]?.toLowerCase();
-    await refreshBalances();
-    await refreshPool();
-    await refreshQuote();
-    render();
-  } catch (err) {
-    setFlash("err", err?.message || "Failed to connect wallet.");
+  if (msg) {
+    setTimeout(() => {
+      if (state.flash?.msg === msg) {
+        state.flash = null;
+        render();
+      }
+    }, 7000);
   }
 }
 
 function swapContract() {
-  return new Contract(CONTRACT.address, SWAP_ABI, signer || provider);
+  const signer = getSigner();
+  return new Contract(CONTRACT.address, SWAP_ABI, signer || getReadProvider());
 }
 
-function erc20(token, withSigner = false) {
-  return new Contract(token.address, ERC20_ABI, withSigner && signer ? signer : provider);
+function erc20(token, writable = false) {
+  const signer = writable ? getSigner() : null;
+  return new Contract(token.address, ERC20_ABI, signer || getReadProvider());
 }
 
-async function refreshPool() {
-  if (!provider) return;
+async function refreshPool(symbol = state.stock.symbol) {
+  const stock = STOCKS.find((s) => s.symbol === symbol) || state.stock;
   try {
-    const pool = await swapContract().getPool(state.stock.address);
-    state.pool = [pool.reserveStock ?? pool[0], pool.reserveUsdg ?? pool[1]];
+    const pool = await swapContract().getPool(stock.address);
+    const reserves = [pool.reserveStock ?? pool[0], pool.reserveUsdg ?? pool[1]];
+    state.allPools[symbol] = reserves;
+    if (symbol === state.stock.symbol) state.pool = reserves;
   } catch {
-    state.pool = [0n, 0n];
+    state.allPools[symbol] = [0n, 0n];
+    if (symbol === state.stock.symbol) state.pool = [0n, 0n];
   }
 }
 
+async function refreshAllPools() {
+  await Promise.all(STOCKS.map((s) => refreshPool(s.symbol)));
+}
+
 async function refreshBalances() {
-  if (!account || !provider) return;
+  const account = getAccount();
+  if (!account) return;
   const entries = await Promise.all(
     [...STOCKS, USDG].map(async (t) => {
       try {
@@ -141,7 +121,7 @@ async function refreshBalances() {
 }
 
 async function refreshQuote() {
-  if (!provider || !state.amountIn || Number(state.amountIn) <= 0) {
+  if (!state.amountIn || Number(state.amountIn) <= 0) {
     state.amountOut = "";
     return;
   }
@@ -157,6 +137,7 @@ async function refreshQuote() {
 }
 
 async function approveIfNeeded(token, amount) {
+  const account = getAccount();
   const c = erc20(token, true);
   const allowance = await c.allowance(account, CONTRACT.address);
   if (allowance >= amount) return;
@@ -165,8 +146,31 @@ async function approveIfNeeded(token, amount) {
   await tx.wait();
 }
 
+async function onConnectClick() {
+  if (state.walletBusy) return;
+  state.walletBusy = true;
+  render();
+  try {
+    const result = await handleWalletClick();
+    if (result === "connected") {
+      await refreshBalances();
+      await refreshAllPools();
+      await refreshQuote();
+      setFlash("ok", "Wallet connected.");
+    } else {
+      state.balances = {};
+      setFlash("ok", "Wallet disconnected.");
+    }
+  } catch (err) {
+    setFlash("err", err?.shortMessage || err?.message || "Wallet error.");
+  } finally {
+    state.walletBusy = false;
+    render();
+  }
+}
+
 async function executeSwap() {
-  if (!signer || !account) return connectWallet();
+  if (!isConnected()) return onConnectClick();
   if (!state.amountIn || Number(state.amountIn) <= 0) return;
   const tokenIn = state.mode === "buy" ? USDG : state.stock;
   const tokenOut = state.mode === "buy" ? state.stock : USDG;
@@ -177,15 +181,16 @@ async function executeSwap() {
     return;
   }
   if (state.pool[0] === 0n && state.pool[1] === 0n) {
-    setFlash("err", "Pool is empty. Add liquidity first.");
+    setFlash("err", "Pool is empty — add liquidity first.");
     return;
   }
 
   state.busy = true;
   render();
   try {
+    const signer = getSigner();
     const quoted = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
-    const minOut = quoted * BigInt(10000 - state.slippage) / 10000n;
+    const minOut = (quoted * BigInt(10000 - state.slippage)) / 10000n;
     await approveIfNeeded(tokenIn, rawIn);
     setFlash("ok", "Confirm swap in your wallet…");
     const tx = await swapContract().connect(signer).swap(
@@ -201,7 +206,7 @@ async function executeSwap() {
     await refreshPool();
     setFlash("ok", `Swapped ${tokenIn.symbol} → ${tokenOut.symbol}.`);
   } catch (err) {
-    setFlash("err", err?.shortMessage || err?.message || "Swap failed.");
+    setFlash("err", err?.shortMessage || err?.reason || err?.message || "Swap failed.");
   } finally {
     state.busy = false;
     render();
@@ -209,25 +214,30 @@ async function executeSwap() {
 }
 
 async function executeLiquidity() {
-  if (!signer || !account) return connectWallet();
+  if (!isConnected()) return onConnectClick();
   if (!state.liqStock || !state.liqUsdg) return;
   const stockAmt = parseUnits(state.liqStock, state.stock.decimals);
   const usdgAmt = parseUnits(state.liqUsdg, USDG.decimals);
   state.busy = true;
   render();
   try {
+    const signer = getSigner();
     await approveIfNeeded(state.stock, stockAmt);
     await approveIfNeeded(USDG, usdgAmt);
-    setFlash("ok", "Confirm add liquidity in your wallet…");
-    const tx = await swapContract().connect(signer).addLiquidity(state.stock.address, stockAmt, usdgAmt);
+    setFlash("ok", "Confirm liquidity deposit in your wallet…");
+    const tx = await swapContract().connect(signer).addLiquidity(
+      state.stock.address,
+      stockAmt,
+      usdgAmt
+    );
     await tx.wait();
     state.liqStock = "";
     state.liqUsdg = "";
     await refreshBalances();
-    await refreshPool();
+    await refreshAllPools();
     setFlash("ok", "Liquidity added.");
   } catch (err) {
-    setFlash("err", err?.shortMessage || err?.message || "Add liquidity failed.");
+    setFlash("err", err?.shortMessage || err?.reason || err?.message || "Liquidity failed.");
   } finally {
     state.busy = false;
     render();
@@ -235,227 +245,185 @@ async function executeLiquidity() {
 }
 
 function swapButtonLabel() {
-  if (!account) return "Connect wallet";
+  if (state.walletBusy) return "Connecting…";
+  if (!isConnected()) return "Connect wallet";
   if (!state.amountIn || Number(state.amountIn) <= 0) return "Enter amount";
   if (state.busy) return "Processing…";
   if (state.pool[0] === 0n && state.pool[1] === 0n) return "Pool empty";
   return state.mode === "buy" ? `Buy ${state.stock.symbol}` : `Sell ${state.stock.symbol}`;
 }
 
-function liqButtonLabel() {
-  if (!account) return "Connect wallet";
-  if (!state.liqStock || !state.liqUsdg) return "Enter amounts";
-  if (state.busy) return "Processing…";
-  return "Add liquidity";
-}
-
-function poolEmpty() {
-  return state.pool[0] === 0n && state.pool[1] === 0n;
+function poolEmpty(pool = state.pool) {
+  return pool[0] === 0n && pool[1] === 0n;
 }
 
 function renderShell(content) {
   const path = route();
   const isDocs = path.startsWith("/docs");
+  const account = getAccount();
 
   $("#app").innerHTML = `
-    <div class="shell">
-      <div class="float-header">
-        <header class="nav-bar">
-          <div class="nav-brand">
-            <a href="#/" class="logo">
-              <img class="logo-mark" src="/assets/logo-mark.svg" alt="" width="28" height="28" />
-              <span class="logo-word">${BRAND.name}</span>
-            </a>
-          </div>
-          <nav class="nav-links">
-            <a href="#/" class="nav-link ${path === "/" ? "active" : ""}">Swap</a>
-            <a href="#/docs" class="nav-link ${isDocs ? "active" : ""}">Docs</a>
-            <a href="${CHAIN.explorer}" target="_blank" rel="noreferrer" class="nav-link">Explorer</a>
-            <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer" class="nav-link">Faucet</a>
-          </nav>
-          <div class="nav-actions">
-            <a href="${LINKS.launchpad}" target="_blank" rel="noreferrer" class="nav-link hide-mobile">Perps</a>
-            <a href="${LINKS.x}" target="_blank" rel="noreferrer" class="nav-x">@tradeperpex</a>
-            <button class="btn-connect ${account ? "connected" : ""}" id="connect-btn">
-              ${account ? shortAddr(account) : "Connect wallet"}
-            </button>
-          </div>
-        </header>
-      </div>
-
-      <main class="shell-body">${content}</main>
-
-      <div class="float-footer">
-        <footer class="footer-bar">
-          <div>
-            <div class="footer-brand">${BRAND.name}</div>
-            <div class="footer-tag">${BRAND.name} swap on Robinhood Chain testnet — from the team behind tradeperpex.fun.</div>
-          </div>
-          <nav class="footer-nav">
-            <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer">ETH faucet</a>
-            <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">USDG faucet</a>
-            <a href="${CHAIN.explorer}" target="_blank" rel="noreferrer">Explorer</a>
-            <a href="#/docs">Docs</a>
-          </nav>
-        </footer>
-      </div>
+    <div class="app">
+      <header class="topbar">
+        <a href="#/" class="brand">
+          <img src="/assets/logo-mark.svg" alt="" width="30" height="30" />
+          <span>${BRAND.name}</span>
+        </a>
+        <nav class="topnav">
+          <a href="#/" class="topnav-link ${path === "/" ? "active" : ""}">Markets</a>
+          <a href="#/docs" class="topnav-link ${isDocs ? "active" : ""}">Docs</a>
+          <a href="${LINKS.perps}" class="topnav-link">Perps</a>
+        </nav>
+        <div class="topbar-end">
+          <span class="chain-pill">${CHAIN.name}</span>
+          <button class="wallet-btn ${account ? "on" : ""}" id="connect-btn" ${state.walletBusy ? "disabled" : ""}>
+            ${state.walletBusy ? "…" : account ? shortAddr(account) : "Connect"}
+          </button>
+        </div>
+      </header>
+      <main class="page">${content}</main>
+      <footer class="page-foot">
+        <span>${BRAND.name} · Chain ${CHAIN.id}</span>
+        <span class="page-foot-links">
+          <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer">ETH faucet</a>
+          <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">USDG faucet</a>
+          <a href="${CHAIN.explorer}" target="_blank" rel="noreferrer">Explorer</a>
+        </span>
+      </footer>
     </div>
   `;
 
-  $("#connect-btn")?.addEventListener("click", connectWallet);
+  $("#connect-btn")?.addEventListener("click", onConnectClick);
+}
+
+function marketListHtml() {
+  return STOCKS.map((s) => {
+    const pool = state.allPools[s.symbol] || [0n, 0n];
+    const active = s.symbol === state.stock.symbol;
+    const empty = poolEmpty(pool);
+    return `
+      <button class="market-row ${active ? "active" : ""}" data-stock="${s.symbol}">
+        <div class="market-row-top">
+          <span class="market-sym">${s.symbol}</span>
+          <span class="market-name">${s.name}</span>
+        </div>
+        <div class="market-row-meta">
+          <span>${empty ? "No liquidity" : `${fmt(pool[0], s.decimals, 1)} / ${fmt(pool[1], USDG.decimals, 0)} USDG`}</span>
+        </div>
+      </button>
+    `;
+  }).join("");
 }
 
 function renderHome() {
+  const account = getAccount();
   const tokenIn = state.mode === "buy" ? USDG : state.stock;
   const tokenOut = state.mode === "buy" ? state.stock : USDG;
   const balIn = state.balances[tokenIn.address.toLowerCase()];
+  const empty = poolEmpty();
 
   renderShell(`
-    ${!account ? `
-    <div class="network-banner">
-      <div class="network-banner-inner">
-        <span>Add Robinhood Chain testnet to MetaMask or any EVM wallet.</span>
-        <button class="network-banner-btn" id="add-network">Add network</button>
-      </div>
-    </div>` : ""}
+    <section class="intro">
+      <p class="intro-tag">Spot · Testnet</p>
+      <h1>${BRAND.tagline}</h1>
+      <p class="intro-sub">Trade tokenized equities against USDG on Robinhood Chain. Connect a wallet, pick a market, swap.</p>
+    </section>
 
-    <div class="home">
-      <section class="home-hero">
-        <div class="home-headline">
-          <p class="home-headline-kicker">Perpex · Robinhood Chain</p>
-          <h1>Swap tokenized stocks. No gatekeepers.</h1>
+    <div class="trade-layout">
+      <aside class="markets-panel">
+        <div class="panel-head">
+          <h2>Markets</h2>
+          <span class="panel-sub">${STOCKS.length} pairs</span>
         </div>
-      </section>
+        <div class="market-list">${marketListHtml()}</div>
+        ${!account ? `
+        <div class="setup-card">
+          <h3>Setup</h3>
+          <p>Add Robinhood Chain testnet to your wallet before connecting.</p>
+          <button class="btn-secondary" id="add-network">Add network</button>
+          ${!hasWallet() ? `<p class="setup-warn">No wallet extension detected.</p>` : ""}
+        </div>` : `
+        <div class="setup-card connected-card">
+          <h3>Wallet</h3>
+          <p class="mono">${shortAddr(account)}</p>
+          <button class="btn-text" id="disconnect-btn">Disconnect</button>
+        </div>`}
+      </aside>
 
-      <div class="home-stage">
-        <aside class="home-aside">
-          <p class="home-kicker">How it works</p>
-          <ul class="aside-steps">
-            <li class="aside-step"><div><strong>Pick a stock</strong>TSLA, AMZN, PLTR, NFLX, or AMD — each pairs with USDG.</div></li>
-            <li class="aside-step"><div><strong>Buy or sell</strong>Buy with USDG, sell for USDG. Constant-product AMM with 0.3% fee.</div></li>
-            <li class="aside-step"><div><strong>Connect wallet</strong>Robinhood Chain testnet (chain ID 46630). No sign-up.</div></li>
-          </ul>
-          <a href="#/docs" class="aside-cta">Read the docs →</a>
-        </aside>
-
-        <div class="home-swap" id="swap">
-          <div class="swap-stack">
-            <div class="picker">
-              ${STOCKS.map((s) => `
-                <button class="picker-item ${s.symbol === state.stock.symbol ? "active" : ""}" data-stock="${s.symbol}">
-                  ${s.symbol}
-                </button>
-              `).join("")}
+      <section class="trade-panel">
+        <div class="trade-card">
+          <div class="trade-card-head">
+            <div>
+              <h2>${state.stock.symbol} / USDG</h2>
+              <p>${state.stock.name} · 0.3% fee</p>
             </div>
-
-            <div class="swap-head">
-              <p class="swap-pair">${state.stock.symbol} / USDG</p>
-              <span class="swap-mode">${state.mode === "buy" ? "Buy" : "Sell"}</span>
+            <div class="dir-switch">
+              <button class="dir-btn ${state.mode === "buy" ? "active" : ""}" data-mode="buy">Buy</button>
+              <button class="dir-btn ${state.mode === "sell" ? "active" : ""}" data-mode="sell">Sell</button>
             </div>
-
-            <div class="mode-toggle">
-              <button class="mode-btn ${state.mode === "buy" ? "active" : ""}" data-mode="buy">Buy</button>
-              <button class="mode-btn ${state.mode === "sell" ? "active" : ""}" data-mode="sell">Sell</button>
-            </div>
-
-            <div class="swap-body">
-              <div class="amount">
-                <div class="amount-top">
-                  <span class="amount-label">You pay</span>
-                  ${balIn !== undefined && account ? `<button class="amount-max" data-max="in">Max ${fmt(balIn, tokenIn.decimals, 2)}</button>` : ""}
-                </div>
-                <div class="amount-row">
-                  <input class="amount-input" id="amount-in" type="text" inputmode="decimal" placeholder="0" value="${state.amountIn}" />
-                  <span class="amount-token">${tokenIn.symbol}</span>
-                </div>
-              </div>
-
-              <div class="swap-mid">
-                <button class="flip-btn" id="flip-mode" title="Flip direction">⇅</button>
-              </div>
-
-              <div class="amount">
-                <div class="amount-top">
-                  <span class="amount-label">You receive</span>
-                </div>
-                <div class="amount-row">
-                  <input class="amount-input readonly" readonly placeholder="0" value="${state.amountOut ? Number(state.amountOut).toLocaleString(undefined, { maximumFractionDigits: 6 }) : ""}" />
-                  <span class="amount-token">${tokenOut.symbol}</span>
-                </div>
-              </div>
-
-              <div class="swap-meta">
-                <div class="meta-row"><span>Pool ${state.stock.symbol}</span><span>${fmt(state.pool[0], state.stock.decimals, 2)}</span></div>
-                <div class="meta-row"><span>Pool USDG</span><span>${fmt(state.pool[1], USDG.decimals, 2)}</span></div>
-                <div class="slippage-row"><span>Slippage tolerance</span><span>${(state.slippage / 100).toFixed(1)}%</span></div>
-              </div>
-
-              ${poolEmpty() ? `
-              <div class="swap-empty-pool">
-                <p><strong>Pool empty.</strong> Nobody can swap until someone adds ${state.stock.symbol} + USDG.</p>
-                <a class="swap-empty-link" href="#provide-liquidity" id="jump-liq">Provide liquidity →</a>
-              </div>` : ""}
-
-              <button class="cta" id="swap-btn" ${state.busy || poolEmpty() ? "disabled" : ""}>${swapButtonLabel()}</button>
-              ${state.flash ? `<div class="flash ${state.flash.type}">${state.flash.msg}</div>` : ""}
-            </div>
-
-            <section class="liq" id="provide-liquidity">
-              <button class="liq-trigger" id="liq-toggle">${state.liqOpen ? "▾" : "▸"} Provide liquidity</button>
-              ${state.liqOpen ? `
-              <div class="liq-panel">
-                <p class="liq-note ${poolEmpty() ? "liq-note-strong" : ""}">
-                  ${poolEmpty()
-                    ? `This pool is empty. Add both tokens once from your wallet. Example: 0.1 ${state.stock.symbol} + 10 USDG.`
-                    : "Pool already has liquidity. You can add more stock + USDG if you want."}
-                </p>
-                ${poolEmpty() ? `<p class="liq-note">Need tokens? <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer">ETH faucet</a> · <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">USDG faucet</a></p>` : ""}
-                <div class="liq-inputs">
-                  <div class="liq-input-row">
-                    <label>${state.stock.symbol} amount</label>
-                    <input id="liq-stock" type="text" inputmode="decimal" placeholder="0.1" value="${state.liqStock}" />
-                  </div>
-                  <div class="liq-input-row">
-                    <label>USDG amount</label>
-                    <input id="liq-usdg" type="text" inputmode="decimal" placeholder="10" value="${state.liqUsdg}" />
-                  </div>
-                </div>
-                <button class="cta cta-outline" id="liq-btn" ${state.busy ? "disabled" : ""}>${liqButtonLabel()}</button>
-              </div>` : ""}
-            </section>
           </div>
+
+          <div class="field">
+            <div class="field-top">
+              <label>Pay with</label>
+              ${balIn !== undefined && account ? `<button class="field-max" data-max="in">Max ${fmt(balIn, tokenIn.decimals, 2)}</button>` : ""}
+            </div>
+            <div class="field-row">
+              <input id="amount-in" type="text" inputmode="decimal" placeholder="0.00" value="${state.amountIn}" />
+              <span class="field-token">${tokenIn.symbol}</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-top"><label>Receive</label></div>
+            <div class="field-row">
+              <input class="readonly" readonly placeholder="0.00" value="${state.amountOut ? Number(state.amountOut).toLocaleString(undefined, { maximumFractionDigits: 6 }) : ""}" />
+              <span class="field-token">${tokenOut.symbol}</span>
+            </div>
+          </div>
+
+          <div class="trade-stats">
+            <div><span>Pool ${state.stock.symbol}</span><strong>${fmt(state.pool[0], state.stock.decimals, 2)}</strong></div>
+            <div><span>Pool USDG</span><strong>${fmt(state.pool[1], USDG.decimals, 2)}</strong></div>
+            <div><span>Slippage</span><strong>${(state.slippage / 100).toFixed(1)}%</strong></div>
+          </div>
+
+          ${empty ? `
+          <div class="notice">
+            <strong>Pool empty.</strong> Add ${state.stock.symbol} + USDG liquidity before swapping.
+            <button class="btn-text" id="jump-liq">Add liquidity →</button>
+          </div>` : ""}
+
+          <button class="btn-primary" id="swap-btn" ${state.busy || state.walletBusy || empty ? "disabled" : ""}>
+            ${swapButtonLabel()}
+          </button>
+
+          ${state.flash ? `<div class="toast ${state.flash.type}">${state.flash.msg}</div>` : ""}
         </div>
-      </div>
+
+        <details class="liq-details" id="liquidity" ${state.liqOpen ? "open" : ""}>
+          <summary>Provide liquidity</summary>
+          <div class="liq-body">
+            <p>${empty
+              ? `Seed this pool with both tokens. Try 0.1 ${state.stock.symbol} + 10 USDG.`
+              : "Add more stock and USDG to deepen the pool."}</p>
+            ${empty ? `<p class="liq-faucets"><a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer">ETH faucet</a> · <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">USDG faucet</a></p>` : ""}
+            <div class="liq-fields">
+              <label>${state.stock.symbol}<input id="liq-stock" type="text" inputmode="decimal" placeholder="0.1" value="${state.liqStock}" /></label>
+              <label>USDG<input id="liq-usdg" type="text" inputmode="decimal" placeholder="10" value="${state.liqUsdg}" /></label>
+            </div>
+            <button class="btn-secondary" id="liq-btn" ${state.busy || state.walletBusy ? "disabled" : ""}>
+              ${!isConnected() ? "Connect wallet" : state.busy ? "Processing…" : "Add liquidity"}
+            </button>
+          </div>
+        </details>
+      </section>
     </div>
 
-    <section class="explain">
-      <div class="explain-head">
-        <h2 class="explain-title">Stonks, onchain</h2>
-        <p class="explain-lead">Real equities as ERC-20 tokens on Robinhood Chain testnet. Swap against USDG through Perpex in seconds.</p>
-      </div>
-      <div class="explain-grid">
-        <article class="explain-card">
-          <div class="explain-card-illu">
-            <svg width="120" height="56" viewBox="0 0 120 56" fill="none"><rect x="8" y="8" width="40" height="40" rx="10" fill="#0c1626" fill-opacity="0.08"/><text x="28" y="34" text-anchor="middle" fill="#0c1626" font-size="12" font-weight="600">TSLA</text><rect x="72" y="8" width="40" height="40" rx="10" fill="${ACCENT}" fill-opacity="0.12" stroke="${ACCENT}"/><text x="92" y="34" text-anchor="middle" fill="${ACCENT}" font-size="12" font-weight="600">USDG</text></svg>
-          </div>
-          <h3>Stock tokens</h3>
-          <p>Real equities like TSLA and AMZN exist as ERC-20 tokens on Robinhood Chain testnet.</p>
-        </article>
-        <article class="explain-card">
-          <div class="explain-card-illu">
-            <svg width="80" height="56" viewBox="0 0 80 56" fill="none"><path d="M8 40 L24 28 L40 32 L56 16 L72 20" stroke="${ACCENT}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
-          <h3>How the swap works</h3>
-          <p>Each stock pairs with USDG. Pay one side, the pool calculates the rate, receive the other instantly.</p>
-        </article>
-        <article class="explain-card">
-          <div class="explain-card-illu">
-            <svg width="80" height="56" viewBox="0 0 80 56" fill="none"><rect x="16" y="12" width="48" height="32" rx="8" stroke="#0c1626" stroke-opacity="0.2"/><path d="M28 28h24" stroke="${ACCENT}" stroke-width="3" stroke-linecap="round"/></svg>
-          </div>
-          <h3>No sign-up</h3>
-          <p>Connect any EVM wallet on Robinhood Chain testnet. Self-custodied from the first swap.</p>
-        </article>
-      </div>
+    <section class="facts">
+      <article class="fact"><h3>Constant-product AMM</h3><p>x·y = k with 0.3% swap fee retained in the pool.</p></article>
+      <article class="fact"><h3>Isolated pools</h3><p>Each stock has its own USDG pair — reserves are independent.</p></article>
+      <article class="fact"><h3>Self-custody</h3><p>No accounts. Your wallet signs every swap and liquidity deposit.</p></article>
     </section>
   `);
 
@@ -464,21 +432,33 @@ function renderHome() {
 
 function bindHomeEvents() {
   $("#add-network")?.addEventListener("click", async () => {
-    try { await ensureChain(); setFlash("ok", "Robinhood Chain testnet added."); }
-    catch (err) { setFlash("err", err?.message || "Could not add network."); }
+    try {
+      await ensureChain();
+      setFlash("ok", `${CHAIN.name} added to wallet.`);
+    } catch (err) {
+      setFlash("err", err?.message || "Could not add network.");
+    }
   });
 
-  document.querySelectorAll("[data-stock]").forEach((btn) => {
+  $("#disconnect-btn")?.addEventListener("click", async () => {
+    await disconnect();
+    state.balances = {};
+    setFlash("ok", "Disconnected.");
+    render();
+  });
+
+  $$("[data-stock]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       state.stock = STOCKS.find((s) => s.symbol === btn.dataset.stock) || STOCKS[0];
       state.amountIn = "";
       state.amountOut = "";
       await refreshPool();
+      await refreshQuote();
       render();
     });
   });
 
-  document.querySelectorAll("[data-mode]").forEach((btn) => {
+  $$("[data-mode]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       state.mode = btn.dataset.mode;
       state.amountIn = "";
@@ -488,19 +468,14 @@ function bindHomeEvents() {
     });
   });
 
-  $("#flip-mode")?.addEventListener("click", async () => {
-    state.mode = state.mode === "buy" ? "sell" : "buy";
-    state.amountIn = "";
-    state.amountOut = "";
-    await refreshQuote();
-    render();
-  });
-
   let quoteTimer;
   $("#amount-in")?.addEventListener("input", (e) => {
     state.amountIn = e.target.value.replace(/[^0-9.]/g, "");
     clearTimeout(quoteTimer);
-    quoteTimer = setTimeout(async () => { await refreshQuote(); render(); }, 300);
+    quoteTimer = setTimeout(async () => {
+      await refreshQuote();
+      render({ refocus: true });
+    }, 350);
   });
 
   $("[data-max='in']")?.addEventListener("click", async () => {
@@ -512,34 +487,31 @@ function bindHomeEvents() {
   });
 
   $("#swap-btn")?.addEventListener("click", executeSwap);
-  $("#jump-liq")?.addEventListener("click", (e) => { e.preventDefault(); state.liqOpen = true; render(); });
+  $("#jump-liq")?.addEventListener("click", () => {
+    state.liqOpen = true;
+    document.getElementById("liquidity")?.setAttribute("open", "");
+    document.getElementById("liquidity")?.scrollIntoView({ behavior: "smooth" });
+  });
 
-  $("#liq-toggle")?.addEventListener("click", () => { state.liqOpen = !state.liqOpen; render(); });
+  const liqDetails = $("#liquidity");
+  liqDetails?.addEventListener("toggle", () => { state.liqOpen = liqDetails.open; });
   $("#liq-stock")?.addEventListener("input", (e) => { state.liqStock = e.target.value.replace(/[^0-9.]/g, ""); });
   $("#liq-usdg")?.addEventListener("input", (e) => { state.liqUsdg = e.target.value.replace(/[^0-9.]/g, ""); });
   $("#liq-btn")?.addEventListener("click", executeLiquidity);
 }
 
 const DOCS_PAGES = {
-  "/docs": { title: "Perpex docs", lead: "Everything you need to swap tokenized stocks on Robinhood Chain testnet.", render: docsOverview },
-  "/docs/how-to-use": { title: "How to use Perpex Swap", lead: "Connect, pick a stock, swap.", render: docsHowTo },
-  "/docs/tokens": { title: "Tokens", lead: "Official testnet token addresses on Robinhood Chain.", render: docsTokens },
-  "/docs/architecture": { title: "Architecture", lead: "Constant-product AMM for tokenized stocks.", render: docsArchitecture },
-  "/docs/liquidity": { title: "Liquidity", lead: "Seed pools so swaps can execute.", render: docsLiquidity },
-  "/docs/contract": { title: "Contract", lead: "On-chain proof and addresses.", render: docsContract },
+  "/docs": { title: "Overview", lead: "Swap tokenized stocks on Robinhood Chain testnet.", render: docsOverview },
+  "/docs/how-to-use": { title: "How to swap", lead: "Wallet setup and trade flow.", render: docsHowTo },
+  "/docs/tokens": { title: "Token addresses", lead: "USDG and stock token contracts.", render: docsTokens },
+  "/docs/architecture": { title: "How it works", lead: "AMM mechanics and contract surface.", render: docsArchitecture },
+  "/docs/liquidity": { title: "Liquidity", lead: "Seeding empty pools.", render: docsLiquidity },
+  "/docs/contract": { title: "Contract", lead: "Deployed addresses.", render: docsContract },
 };
 
-function docsNav(path) {
-  const items = [
-    ["/docs", "Overview"],
-    ["/docs/how-to-use", "How to use"],
-    ["/docs/tokens", "Tokens"],
-    ["/docs/architecture", "Architecture"],
-    ["/docs/liquidity", "Liquidity"],
-    ["/docs/contract", "Contract"],
-  ];
-  return items.map(([href, label]) =>
-    `<a href="#${href}" class="docs-nav-item ${path === href ? "active" : ""}">${label}</a>`
+function docsTabs(path) {
+  return Object.entries(DOCS_PAGES).map(([href, p]) =>
+    `<a href="#${href}" class="doc-tab ${path === href ? "active" : ""}">${p.title}</a>`
   ).join("");
 }
 
@@ -548,172 +520,133 @@ function renderDocs() {
   const page = DOCS_PAGES[path] || DOCS_PAGES["/docs"];
 
   renderShell(`
-    <div class="docs">
-      <div class="docs-hero">
-        <h1 class="docs-title">${page.title}</h1>
-        <p class="docs-lead">${page.lead}</p>
+    <section class="doc-page">
+      <div class="doc-tabs">${docsTabs(path in DOCS_PAGES ? path : "/docs")}</div>
+      <div class="doc-header">
+        <h1>${page.title}</h1>
+        <p>${page.lead}</p>
       </div>
-      <div class="docs-layout">
-        <aside class="docs-sidebar">
-          ${docsNav(path in DOCS_PAGES ? path : "/docs")}
-          <div class="docs-sidebar-card">
-            <div class="docs-sidebar-label">Testnet</div>
-            <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer">ETH faucet</a>
-            <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">Paxos USDG faucet</a>
-            <a href="${CHAIN.explorer}" target="_blank" rel="noreferrer">Block explorer</a>
-            <a href="${LINKS.docs}" target="_blank" rel="noreferrer">Robinhood Chain docs</a>
-          </div>
-        </aside>
-        <article class="docs-content">${page.render()}</article>
-      </div>
-    </div>
+      <article class="doc-body">${page.render()}</article>
+    </section>
   `);
 }
 
 function docsOverview() {
   return `
-    <p>Perpex Swap lets you exchange tokenized stocks against USDG on Robinhood Chain testnet. No sign up. Just a wallet and test tokens.</p>
-    <div class="docs-callout"><strong>From the Perpex team.</strong> Same permissionless ethos as tradeperpex.fun — now for spot RWAs on Robinhood Chain.</div>
-    <h2>What you need</h2>
+    <p>Perpex Spot exchanges tokenized equities against USDG on Robinhood Chain testnet. Connect any EVM wallet — no registration.</p>
+    <h2>Requirements</h2>
     <ul>
-      <li><strong>ETH</strong> for gas (always)</li>
-      <li><strong>USDG</strong> if you want to buy a stock</li>
-      <li><strong>Stock tokens</strong> if you want to sell a stock</li>
+      <li><strong>ETH</strong> for gas</li>
+      <li><strong>USDG</strong> to buy stocks</li>
+      <li><strong>Stock tokens</strong> to sell</li>
     </ul>
-    <p>Get USDG from the <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">Paxos testnet faucet</a>. Stock token addresses are on the <a href="#/docs/tokens">Tokens</a> page.</p>
-    <h2>Quick start</h2>
-    <ol class="docs-steps">
-      <li class="docs-step"><span class="docs-step-num">1</span><div>Add Robinhood Chain testnet and connect your wallet.</div></li>
-      <li class="docs-step"><span class="docs-step-num">2</span><div>Pick a stock: TSLA, AMZN, PLTR, NFLX, or AMD.</div></li>
-      <li class="docs-step"><span class="docs-step-num">3</span><div>Enter an amount and swap.</div></li>
-    </ol>
-    <a href="#/" class="cta" style="display:inline-block;width:auto;padding:0.75rem 1.5rem;margin-top:0.5rem;">Open swap</a>
+    <p>USDG: <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">Paxos testnet faucet</a>. Addresses: <a href="#/docs/tokens">token list</a>.</p>
+    <a href="#/" class="btn-primary inline">Open markets</a>
   `;
 }
 
 function docsHowTo() {
   return `
-    <h2>Connect to the app</h2>
-    <p>Add Robinhood Chain testnet to MetaMask or any EVM wallet, then connect on the <a href="#/">Swap</a> page.</p>
-    <h3>Network details</h3>
-    <div class="docs-table-wrap"><table class="docs-table">
-      <tr><th>Property</th><th>Value</th></tr>
-      <tr><td>Network</td><td>${CHAIN.name}</td></tr>
-      <tr><td>Chain ID</td><td><code>${CHAIN.id}</code></td></tr>
-      <tr><td>RPC</td><td><code>${CHAIN.rpc}</code></td></tr>
-      <tr><td>Explorer</td><td><a href="${CHAIN.explorer}" target="_blank" rel="noreferrer">explorer.testnet.chain.robinhood.com</a></td></tr>
-    </table></div>
-    <h2>Swap</h2>
+    <h2>1. Add the network</h2>
+    <p>Chain ID <code>${CHAIN.id}</code> · RPC <code>${CHAIN.rpc}</code></p>
+    <button class="btn-secondary inline" id="docs-add-network">Add network</button>
+    <h2>2. Connect wallet</h2>
+    <p>Click <strong>Connect</strong> in the header. Approve the connection and ensure you're on ${CHAIN.name}.</p>
+    <h2>3. Swap</h2>
     <ol>
-      <li>Pick a stock from the tab bar.</li>
-      <li>Choose <strong>Buy</strong> (pay USDG) or <strong>Sell</strong> (pay stock).</li>
-      <li>Enter an amount — the output quote updates automatically.</li>
-      <li>Confirm the swap in your wallet.</li>
+      <li>Select a market from the left panel.</li>
+      <li>Toggle Buy or Sell.</li>
+      <li>Enter an amount and confirm in your wallet.</li>
     </ol>
-    <div class="docs-callout warn">Swaps only work when the pool has both stock and USDG. If the pool is empty, add liquidity first.</div>
   `;
 }
 
 function docsTokens() {
   return `
-    <h2>USDG (quote token)</h2>
-    <div class="docs-table-wrap"><table class="docs-table">
-      <tr><th>Token</th><th>Address</th></tr>
-      <tr><td>USDG</td><td><code>${USDG.address}</code></td></tr>
-    </table></div>
-    <h2>Stock tokens</h2>
-    <div class="docs-table-wrap"><table class="docs-table">
-      <tr><th>Symbol</th><th>Name</th><th>Address</th></tr>
-      ${STOCKS.map((s) => `<tr><td>${s.symbol}</td><td>${s.name}</td><td><code>${s.address}</code></td></tr>`).join("")}
-    </table></div>
+    <table class="data-table">
+      <thead><tr><th>Symbol</th><th>Name</th><th>Address</th></tr></thead>
+      <tbody>
+        <tr><td>USDG</td><td>USDG Stablecoin</td><td><code>${USDG.address}</code></td></tr>
+        ${STOCKS.map((s) => `<tr><td>${s.symbol}</td><td>${s.name}</td><td><code>${s.address}</code></td></tr>`).join("")}
+      </tbody>
+    </table>
   `;
 }
 
 function docsArchitecture() {
   return `
-    <p>Perpex Swap is a minimal AMM for swapping tokenized stocks against USDG on Robinhood Chain testnet.</p>
-    <h2>Mechanics</h2>
+    <p>Constant-product pools pair each stock token with USDG.</p>
     <ul>
-      <li>Constant-product AMM (<code>x·y=k</code>) with a <strong>0.3% swap fee</strong></li>
-      <li>One pool per listed stock token paired with USDG</li>
-      <li><code>swap</code> — exchange stock ↔ USDG at the pool rate</li>
-      <li><code>addLiquidity</code> — deposit stock + USDG into a pool</li>
-      <li><code>getPool</code> / <code>getAmountOut</code> — read reserves and quotes</li>
+      <li><code>getPool(stock)</code> — read reserves</li>
+      <li><code>getAmountOut(stock, tokenIn, amountIn)</code> — quote</li>
+      <li><code>swap(...)</code> — execute trade</li>
+      <li><code>addLiquidity(...)</code> — seed or deepen a pool</li>
     </ul>
-    <h2>Frontend</h2>
-    <p>Static web app with ethers.js, EVM wallet connect, and direct contract calls to the on-chain swap contract.</p>
   `;
 }
 
 function docsLiquidity() {
   return `
-    <p>Empty pools simply cannot trade yet. Add stock + USDG from your own wallet when you (or someone else) wants to swap that pair.</p>
-    <h3>Option A: UI</h3>
-    <ol>
-      <li>Go to the <a href="#/provide-liquidity">Swap page</a> and expand <strong>Provide liquidity</strong>.</li>
-      <li>Enter amounts for the stock and USDG, then confirm.</li>
-    </ol>
-    <h3>Example seed</h3>
-    <p>Example above seeds 0.1 TSLA and 10 USDG. Adjust amounts per pool. Repeat for each stock you want live.</p>
-    <pre class="docs-code"># Foundry example (see Perpex repo)
-export STOCK_AMOUNT=100000000000000000
-export USDG_AMOUNT=10000000000000000000
-forge script script/AddLiquidity.s.sol --broadcast</pre>
+    <p>Swaps require both sides of the pool to hold tokens. Use the <strong>Provide liquidity</strong> section on the Markets page.</p>
+    <p>Example seed: 0.1 stock + 10 USDG per market.</p>
   `;
 }
 
 function docsContract() {
   return `
-    <h2>On-chain proof</h2>
-    <div class="docs-grid">
-      <div class="docs-card"><div class="docs-card-label">Contract</div><div class="docs-card-value"><code>${CONTRACT.address}</code></div></div>
-      <div class="docs-card"><div class="docs-card-label">Deploy tx</div><div class="docs-card-value"><code>${CONTRACT.deployTx.slice(0, 18)}…</code></div></div>
-      <div class="docs-card"><div class="docs-card-label">Deployer</div><div class="docs-card-value"><code>${CONTRACT.deployer}</code></div></div>
-      <div class="docs-card"><div class="docs-card-label">Chain ID</div><div class="docs-card-value"><code>${CHAIN.id}</code></div></div>
-    </div>
+    <table class="data-table">
+      <tbody>
+        <tr><th>Swap contract</th><td><code>${CONTRACT.address}</code></td></tr>
+        <tr><th>Deployer</th><td><code>${CONTRACT.deployer}</code></td></tr>
+        <tr><th>Chain</th><td>${CHAIN.name} (${CHAIN.id})</td></tr>
+      </tbody>
+    </table>
     <p><a href="${CHAIN.explorer}/address/${CONTRACT.address}" target="_blank" rel="noreferrer">View on explorer →</a></p>
-    <p>Source: <a href="${CONTRACT.source}" target="_blank" rel="noreferrer">Perpex on GitHub</a></p>
-    <div class="docs-callout warn">Perpex Swap is a testnet demo. Stock tokens and USDG are test assets on Robinhood Chain — not affiliated with Robinhood Markets.</div>
+    <p class="fine">Testnet demo. Not affiliated with Robinhood Markets.</p>
   `;
 }
 
-function render() {
+function render(opts = {}) {
   const path = route();
-  if (path.startsWith("/docs")) renderDocs();
-  else renderHome();
+  const active = document.activeElement?.id;
+  if (path.startsWith("/docs")) {
+    renderDocs();
+    $("#docs-add-network")?.addEventListener("click", async () => {
+      try { await ensureChain(); alert(`${CHAIN.name} added.`); }
+      catch (e) { alert(e.message); }
+    });
+  } else {
+    renderHome();
+    if (opts.refocus && active) {
+      const el = document.getElementById(active);
+      if (el) {
+        el.focus();
+        if (el.setSelectionRange && typeof el.value === "string") {
+          el.setSelectionRange(el.value.length, el.value.length);
+        }
+      }
+    }
+  }
 }
 
 async function init() {
-  if (window.ethereum) {
-    provider = new BrowserProvider(window.ethereum);
-    try {
-      const accounts = await provider.send("eth_accounts", []);
-      if (accounts.length) {
-        signer = await provider.getSigner();
-        account = accounts[0].toLowerCase();
-        await refreshBalances();
-        await refreshPool();
-      }
-    } catch { /* no-op */ }
+  bindWalletEvents(async () => {
+    await refreshBalances();
+    await refreshAllPools();
+    render();
+  });
 
-    window.ethereum.on?.("accountsChanged", (accounts) => {
-      account = accounts[0]?.toLowerCase() || null;
-      signer = account ? signer : null;
-      if (account) refreshBalances().then(() => render());
-      else { state.balances = {}; render(); }
-    });
+  await restoreSession();
+  await refreshAllPools();
 
-    window.ethereum.on?.("chainChanged", () => location.reload());
-  }
+  if (isConnected()) await refreshBalances();
 
   render();
 }
 
-window.addEventListener("hashchange", () => {
+window.addEventListener("hashchange", async () => {
   render();
-  if (route() === "/" || route() === "/provide-liquidity") {
-    refreshPool();
-  }
+  if (!route().startsWith("/docs")) await refreshAllPools();
 });
 
 init();
