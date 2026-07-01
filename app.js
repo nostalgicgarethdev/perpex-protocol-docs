@@ -272,6 +272,8 @@ function renderShell(content) {
         <nav class="topnav">
           <a href="#/" class="topnav-link ${path === "/" ? "active" : ""}">Markets</a>
           <a href="#/docs" class="topnav-link ${isDocs ? "active" : ""}">Docs</a>
+          <a href="#/explorer" class="topnav-link ${path === "/explorer" ? "active" : ""}">Explorer</a>
+          <a href="#/roadmap" class="topnav-link ${path === "/roadmap" ? "active" : ""}">Roadmap</a>
         </nav>
         <div class="topbar-end">
           <span class="chain-pill">${CHAIN.name}</span>
@@ -605,6 +607,76 @@ function docsContract() {
   `;
 }
 
+function explorerLink(label, href, sub = "") {
+  return `
+    <a class="explorer-row" href="${href}" target="_blank" rel="noreferrer">
+      <span class="explorer-row-label">${label}</span>
+      ${sub ? `<span class="explorer-row-sub">${sub}</span>` : ""}
+      <span class="explorer-row-arrow">↗</span>
+    </a>
+  `;
+}
+
+function renderExplorer() {
+  renderShell(`
+    <section class="sub-page">
+      <div class="sub-header">
+        <h1>Explorer</h1>
+        <p>On-chain addresses and block explorer links for ${CHAIN.name}.</p>
+      </div>
+      <div class="sub-body">
+        <h2>Network</h2>
+        <div class="link-list">
+          ${explorerLink("Block explorer", CHAIN.explorer, "explorer.testnet.chain.robinhood.com")}
+          ${explorerLink("Deploy transaction", `${CHAIN.explorer}/tx/${CONTRACT.deployTx}`, shortAddr(CONTRACT.deployTx))}
+        </div>
+        <h2>Contracts</h2>
+        <div class="link-list">
+          ${explorerLink("Swap contract", `${CHAIN.explorer}/address/${CONTRACT.address}`, CONTRACT.address)}
+          ${explorerLink("Deployer wallet", `${CHAIN.explorer}/address/${CONTRACT.deployer}`, CONTRACT.deployer)}
+        </div>
+        <h2>Tokens</h2>
+        <div class="link-list">
+          ${explorerLink("USDG", `${CHAIN.explorer}/address/${USDG.address}`, USDG.address)}
+          ${STOCKS.map((s) => explorerLink(`${s.symbol} · ${s.name}`, `${CHAIN.explorer}/address/${s.address}`, s.address)).join("")}
+        </div>
+      </div>
+    </section>
+  `);
+}
+
+function roadmapItem(status, phase, title, body) {
+  return `
+    <li class="roadmap-item ${status}">
+      <div class="roadmap-marker"></div>
+      <div class="roadmap-content">
+        <span class="roadmap-phase">${phase}</span>
+        <h3>${title}</h3>
+        <p>${body}</p>
+      </div>
+    </li>
+  `;
+}
+
+function renderRoadmap() {
+  renderShell(`
+    <section class="sub-page">
+      <div class="sub-header">
+        <h1>Roadmap</h1>
+        <p>Where Perpex Spot is today and what's coming next on Robinhood Chain testnet.</p>
+      </div>
+      <ol class="roadmap">
+        ${roadmapItem("done", "Phase 01 · Live", "Swap interface", "Five stock/USDG markets, wallet connect, live pool reads, and on-chain swaps against the deployed AMM contract.")}
+        ${roadmapItem("done", "Phase 02 · Live", "Liquidity tooling", "In-app liquidity deposits so pools can be seeded without leaving the interface.")}
+        ${roadmapItem("active", "Phase 03 · Now", "Market depth", "Seed remaining empty pools and improve testnet liquidity across all five pairs.")}
+        ${roadmapItem("planned", "Phase 04", "Price charts", "Historical swap volume and pool reserve charts per market.")}
+        ${roadmapItem("planned", "Phase 05", "More RWAs", "Expand beyond the initial five tickers as new tokenized equities land on chain.")}
+        ${roadmapItem("planned", "Phase 06", "Mainnet ready", "Audit, hardened oracle assumptions, and production deployment when Robinhood Chain mainnet opens.")}
+      </ol>
+    </section>
+  `);
+}
+
 function render(opts = {}) {
   const path = route();
   const active = document.activeElement?.id;
@@ -614,6 +686,10 @@ function render(opts = {}) {
       try { await ensureChain(); alert(`${CHAIN.name} added.`); }
       catch (e) { alert(e.message); }
     });
+  } else if (path === "/explorer") {
+    renderExplorer();
+  } else if (path === "/roadmap") {
+    renderRoadmap();
   } else {
     renderHome();
     if (opts.refocus && active) {
