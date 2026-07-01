@@ -3,12 +3,25 @@ export const BRAND = {
   short: "TF",
   headline: "Route between tickers and USDG.",
   description:
-    "Each tokenized stock runs in its own reserve lane — with route intel, lane pulse, portfolio view, and a live on-chain feed built in.",
+    "The Robinhood Chain trading terminal — route intel, pinned lanes, live ticker, portfolio book, and mainnet swaps. More than a swap box.",
   url: "https://tickerflux-vercel.vercel.app",
   fee: "0.3%",
   tokenCa: "HXqPR3T1oG9sUrTTmGjSrEPjDeUBMcvzjt1iMMp9pump",
   tokenCaUrl: "https://pump.fun/coin/HXqPR3T1oG9sUrTTmGjSrEPjDeUBMcvzjt1iMMp9pump",
 };
+
+export const QUICK_BUY_AMOUNTS = [10, 50, 100, 500];
+
+export const VS_HOODSWAP = [
+  { label: "Mainnet swaps", us: true, them: false },
+  { label: "Route intel (impact + min out)", us: true, them: false },
+  { label: "Lane pulse dashboard", us: true, them: false },
+  { label: "Portfolio book", us: true, them: false },
+  { label: "Live on-chain feed", us: true, them: false },
+  { label: "Slippage controls", us: true, them: false },
+  { label: "Pin favorite lanes", us: true, them: false },
+  { label: "Shareable deep links", us: true, them: false },
+];
 
 export const SLIPPAGE_BPS = 50;
 export const FEE_BPS = 30;

@@ -101,7 +101,8 @@ export async function quoteExactIn(stock, tokenIn, amountIn, fee) {
     sqrtPriceLimitX96: 0n,
   });
   const amountOut = result.amountOut ?? result[0];
-  return amountOut;
+  const gasEstimate = result.gasEstimate ?? result[3] ?? null;
+  return { amountOut, gasEstimate };
 }
 
 export async function executeExactIn(stock, tokenIn, amountIn, minOut, fee, recipient) {

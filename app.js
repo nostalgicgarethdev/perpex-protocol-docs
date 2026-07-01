@@ -5,6 +5,8 @@ import {
   SLIPPAGE_OPTIONS,
   SWAP_ABI,
   ERC20_ABI,
+  QUICK_BUY_AMOUNTS,
+  VS_HOODSWAP,
 } from "./config.js";
 import {
   getBrand,
@@ -71,7 +73,58 @@ const state = {
   activity: [],
   activityLoading: false,
   myTrades: [],
+  laneStats: {},
+  quoteGas: null,
+  lastReceipt: null,
 };
+
+const PIN_KEY = "tickerflux-pins";
+
+function getPinnedLanes() {
+  try {
+    const raw = localStorage.getItem(PIN_KEY);
+    const pins = raw ? JSON.parse(raw) : [];
+    return Array.isArray(pins) ? pins.filter((s) => STOCKS.some((x) => x.symbol === s)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function togglePinned(symbol) {
+  const pins = getPinnedLanes();
+  const next = pins.includes(symbol) ? pins.filter((s) => s !== symbol) : [...pins, symbol];
+  localStorage.setItem(PIN_KEY, JSON.stringify(next));
+}
+
+function sortedStocks() {
+  const pins = getPinnedLanes();
+  return [...STOCKS].sort((a, b) => {
+    const ap = pins.includes(a.symbol) ? 0 : 1;
+    const bp = pins.includes(b.symbol) ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    const aUsdg = state.allPools[a.symbol]?.[1] ?? 0n;
+    const bUsdg = state.allPools[b.symbol]?.[1] ?? 0n;
+    return Number(bUsdg - aUsdg);
+  });
+}
+
+function shareUrl() {
+  const base = `${location.origin}${location.pathname}`;
+  const params = new URLSearchParams();
+  params.set("stock", state.stock.symbol);
+  params.set("mode", state.mode);
+  params.set("tab", state.terminalTab);
+  return `${base}#/?${params}`;
+}
+
+async function copyShareLink() {
+  try {
+    await navigator.clipboard.writeText(shareUrl());
+    setFlash("ok", "Route link copied — share this lane.");
+  } catch {
+    setFlash("err", "Could not copy link.");
+  }
+}
 
 function swapSpender() {
   return isUniswapAmm() ? UNISWAP.router : CONTRACT.address;
@@ -232,13 +285,16 @@ async function refreshQuote() {
   try {
     const rawIn = parseUnits(state.amountIn, tokenIn.decimals);
     let out;
+    state.quoteGas = null;
     if (isUniswapAmm()) {
       const fee = state.poolMeta[state.stock.symbol]?.fee;
       if (!fee) {
         state.amountOut = "";
         return;
       }
-      out = await quoteExactIn(state.stock, tokenIn, rawIn, fee);
+      const quote = await quoteExactIn(state.stock, tokenIn, rawIn, fee);
+      out = quote.amountOut;
+      state.quoteGas = quote.gasEstimate;
     } else {
       out = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
     }
@@ -328,13 +384,23 @@ async function executeSwap() {
         minOut
       );
     }
-    await tx.wait();
+    const receipt = await tx.wait();
+    state.lastReceipt = {
+      tx: receipt.hash,
+      tokenIn,
+      tokenOut,
+      amountIn: state.amountIn,
+      amountOut: state.amountOut,
+      stock: state.stock.symbol,
+      side: state.mode,
+    };
     state.amountIn = "";
     state.amountOut = "";
+    state.quoteGas = null;
     await refreshBalances();
     await refreshPool();
     await refreshActivity();
-    setFlash("ok", `Swapped ${tokenIn.symbol} → ${tokenOut.symbol}.`);
+    setFlash("ok", `Routed ${tokenIn.symbol} → ${tokenOut.symbol}.`);
   } catch (err) {
     setFlash("err", err?.shortMessage || err?.reason || err?.message || "Swap failed.");
   } finally {
@@ -453,6 +519,15 @@ function deepestLane() {
   return best ? { stock: best, usdg: bestUsdg } : null;
 }
 
+function executionRate() {
+  const intel = routeIntel();
+  if (!intel.rate || !state.stock) return null;
+  if (state.mode === "buy") {
+    return `1 ${state.stock.symbol} ≈ $${(1 / intel.rate).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  }
+  return `1 ${state.stock.symbol} ≈ $${intel.rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
 function routeIntel() {
   const empty = poolEmpty();
   const price = midPrice(state.pool, state.stock);
@@ -464,6 +539,7 @@ function routeIntel() {
       minOut: null,
       rate: null,
       feeEst: null,
+      gas: state.quoteGas,
     };
   }
   const tokenIn = state.mode === "buy" ? USDG : state.stock;
@@ -478,7 +554,7 @@ function routeIntel() {
   const inNum = Number(state.amountIn);
   const outNum = Number(state.amountOut);
   const rate = inNum > 0 ? outNum / inNum : null;
-  return { empty, price, impact, minOut, rate, feeEst, tokenIn, tokenOut };
+  return { empty, price, impact, minOut, rate, feeEst, tokenIn, tokenOut, gas: state.quoteGas };
 }
 
 function portfolioSummary() {
@@ -552,11 +628,21 @@ async function refreshActivity() {
 
     parsed = parsed
       .sort((a, b) => b.block - a.block)
-      .slice(0, 40)
       .map((ev) => ({
         ...ev,
         mine: account && ev.user?.toLowerCase() === account,
       }));
+
+    state.laneStats = {};
+    for (const ev of parsed) {
+      const sym = ev.stock?.symbol;
+      if (!sym) continue;
+      if (!state.laneStats[sym]) state.laneStats[sym] = { count: 0, usdgVol: 0 };
+      state.laneStats[sym].count += 1;
+      const usdgRaw = ev.side === "buy" ? ev.amountIn : ev.amountOut;
+      const usdgTok = ev.side === "buy" ? USDG : USDG;
+      state.laneStats[sym].usdgVol += Number(formatUnits(usdgRaw, usdgTok.decimals));
+    }
 
     state.activity = parsed.slice(0, 12);
     state.myTrades = parsed.filter((e) => e.mine).slice(0, 6);
@@ -667,17 +753,24 @@ function bindTopbarScroll() {
 }
 
 function laneRailHtml() {
-  return STOCKS.map((s) => {
+  const pins = getPinnedLanes();
+  return sortedStocks().map((s) => {
     const pool = state.allPools[s.symbol] || [0n, 0n];
     const active = s.symbol === state.stock.symbol;
     const empty = poolEmpty(pool);
     const price = midPrice(pool, s);
+    const pinned = pins.includes(s.symbol);
+    const stats = state.laneStats[s.symbol];
     return `
-      <button class="lane-btn liquid-glass-hover ${active ? "active" : ""}" data-stock="${s.symbol}" type="button">
-        <span class="lane-dot" style="background:${s.hue}"></span>
+      <button class="lane-btn liquid-glass-hover ${active ? "active" : ""} ${pinned ? "pinned" : ""}" data-stock="${s.symbol}" type="button">
+        <span class="lane-btn-top">
+          <span class="lane-dot" style="background:${s.hue}"></span>
+          <span class="lane-pin ${pinned ? "on" : ""}" data-pin="${s.symbol}" role="presentation" aria-hidden="true">${pinned ? "★" : "☆"}</span>
+        </span>
         <span class="lane-sym">${s.symbol}</span>
         <span class="lane-meta">${empty ? "Unseeded" : price ? `$${price.toFixed(2)}` : "—"}</span>
         <span class="lane-depth">${empty ? "" : `${fmt(pool[1], USDG.decimals, 0)} USDG`}</span>
+        ${stats?.count ? `<span class="lane-swaps">${stats.count} recent</span>` : ""}
       </button>
     `;
   }).join("");
@@ -706,6 +799,8 @@ function routeIntelHtml() {
         <div><span>Price impact</span><strong class="${impactClass}">${intel.impact ? `${intel.impact.toFixed(2)}%` : "—"}</strong></div>
         <div><span>Min received</span><strong>${intel.minOut ? fmt(intel.minOut, intel.tokenOut.decimals, 4) : "—"} ${intel.minOut ? intel.tokenOut.symbol : ""}</strong></div>
         <div><span>Route fee (~)</span><strong>${intel.feeEst ? fmt(intel.feeEst, intel.tokenIn.decimals, 4) : "—"} ${intel.feeEst ? intel.tokenIn.symbol : ""}</strong></div>
+        <div><span>Exec. rate</span><strong>${executionRate() || "—"}</strong></div>
+        <div><span>Gas (~)</span><strong>${intel.gas ? intel.gas.toLocaleString() : "—"}</strong></div>
       </div>
       ${intel.impact >= 3 ? `<p class="route-intel-warn">High impact — consider a smaller size or a deeper lane.</p>` : ""}
     </div>
@@ -733,17 +828,24 @@ function portfolioBarHtml() {
 }
 
 function lanePulseHtml() {
-  const rows = STOCKS.map((s) => {
+  const rows = sortedStocks().map((s) => {
     const pool = state.allPools[s.symbol] || [0n, 0n];
     const empty = poolEmpty(pool);
     const price = midPrice(pool, s);
     const health = laneHealth(pool);
     const active = s.symbol === state.stock.symbol;
+    const stats = state.laneStats[s.symbol];
+    const deepest = deepestLane();
+    const isDeep = deepest?.stock.symbol === s.symbol;
     return `
       <tr class="${active ? "pulse-active" : ""}">
-        <td><span class="lane-dot" style="background:${s.hue}"></span>${s.symbol}</td>
+        <td>
+          <span class="lane-dot" style="background:${s.hue}"></span>${s.symbol}
+          ${isDeep && !empty ? `<span class="lane-badge">Deep</span>` : ""}
+        </td>
         <td>${empty ? "—" : price ? `$${price.toFixed(2)}` : "—"}</td>
         <td>${empty ? "—" : fmt(pool[1], USDG.decimals, 0)}</td>
+        <td>${stats ? `${stats.count} / ${stats.usdgVol.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}</td>
         <td><span class="health-bar"><span style="width:${health}%"></span></span> ${empty ? "—" : health}</td>
         <td><button class="btn-text" data-stock="${s.symbol}" type="button">${active ? "Selected" : "Open"}</button></td>
       </tr>
@@ -760,7 +862,7 @@ function lanePulseHtml() {
         ${deep ? `<span class="pulse-hint">Deepest lane: <strong>${deep.stock.symbol}</strong> (${deep.usdg.toLocaleString(undefined, { maximumFractionDigits: 0 })} USDG)</span>` : ""}
       </div>
       <table class="pulse-table">
-        <thead><tr><th>Ticker</th><th>Mid</th><th>USDG depth</th><th>Health</th><th></th></tr></thead>
+        <thead><tr><th>Ticker</th><th>Mid</th><th>USDG depth</th><th>Recent routes</th><th>Health</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </section>
@@ -778,6 +880,75 @@ function activityRowHtml(ev) {
         <span><strong>${sym}</strong> · ${fmt(ev.amountIn, ev.tokenIn.decimals, 3)} ${inSym} → ${fmt(ev.amountOut, ev.tokenOut.decimals, 3)} ${outSym}</span>
       </div>
       <a class="activity-tx mono" href="${CHAIN.explorer}/tx/${ev.tx}" target="_blank" rel="noreferrer">${shortAddr(ev.tx)}</a>
+    </div>
+  `;
+}
+
+function tickerTapeHtml() {
+  if (!state.activity.length) return "";
+  const items = state.activity.slice(0, 8).map((ev) => {
+    const sym = ev.stock?.symbol || "?";
+    return `<span class="ticker-item ${ev.side}"><strong>${sym}</strong> ${ev.side === "buy" ? "in" : "out"} ${fmt(ev.amountIn, ev.tokenIn.decimals, 2)} ${ev.tokenIn.symbol}</span>`;
+  }).join("");
+  return `
+    <div class="ticker-tape liquid-glass-subtle" aria-label="Live route ticker">
+      <span class="ticker-label">Live</span>
+      <div class="ticker-viewport"><div class="ticker-track">${items}${items}</div></div>
+    </div>
+  `;
+}
+
+function compareStripHtml() {
+  return `
+    <section class="compare-strip liquid-glass">
+      <div class="compare-head">
+        <div>
+          <h3>TickerFlux vs HoodSwap</h3>
+          <p>Same chain — we built the terminal they didn't.</p>
+        </div>
+        <span class="compare-tag">Why we're better</span>
+      </div>
+      <div class="compare-table-wrap">
+        <table class="compare-table">
+          <thead><tr><th>Feature</th><th>TickerFlux</th><th>HoodSwap</th></tr></thead>
+          <tbody>
+            ${VS_HOODSWAP.map((row) => `
+              <tr>
+                <td>${row.label}</td>
+                <td class="compare-yes">${row.us ? "✓" : "—"}</td>
+                <td class="compare-no">${row.them ? "✓" : "—"}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function swapReceiptHtml() {
+  if (!state.lastReceipt) return "";
+  const r = state.lastReceipt;
+  return `
+    <div class="swap-receipt liquid-glass-inset">
+      <div class="swap-receipt-head">
+        <strong>Route confirmed</strong>
+        <button class="btn-text" id="dismiss-receipt" type="button">Dismiss</button>
+      </div>
+      <p>${r.amountIn} ${r.tokenIn.symbol} → ${r.amountOut} ${r.tokenOut.symbol} · ${r.stock} lane</p>
+      <a class="swap-receipt-tx mono" href="${CHAIN.explorer}/tx/${r.tx}" target="_blank" rel="noreferrer">View on explorer · ${shortAddr(r.tx)}</a>
+    </div>
+  `;
+}
+
+function quickAmountsHtml() {
+  if (state.mode !== "buy") return "";
+  return `
+    <div class="quick-amounts">
+      <span class="quick-label">Quick</span>
+      ${QUICK_BUY_AMOUNTS.map((amt) =>
+        `<button class="quick-amt" data-quick="${amt}" type="button">$${amt}</button>`
+      ).join("")}
     </div>
   `;
 }
@@ -852,6 +1023,8 @@ function renderHome() {
       </div>
     </section>
 
+    ${tickerTapeHtml()}
+
     ${portfolioBarHtml()}
 
     ${deep && deep.stock.symbol !== state.stock.symbol && state.mode === "buy" ? `
@@ -882,6 +1055,14 @@ function renderHome() {
             <button class="flow-btn ${state.mode === "sell" ? "active" : ""}" data-mode="sell" type="button">${state.stock.symbol} → USDG</button>
           </div>
 
+          <div class="terminal-toolbar">
+            <button class="toolbar-btn" id="flip-swap" type="button" title="Flip direction">⇅ Flip</button>
+            <button class="btn-text" id="share-route" type="button">Share route</button>
+            <button class="btn-text" id="refresh-pools" type="button">Refresh lanes</button>
+          </div>
+
+          ${quickAmountsHtml()}
+
           <div class="field">
             <div class="field-top">
               <label>Send</label>
@@ -893,7 +1074,9 @@ function renderHome() {
             </div>
           </div>
 
-          <div class="swap-divider"><span class="swap-arrow" aria-hidden="true"></span></div>
+          <div class="swap-divider">
+            <button class="flip-mid" id="flip-swap-mid" type="button" title="Flip direction" aria-label="Flip swap direction">⇅</button>
+          </div>
 
           <div class="field">
             <div class="field-top"><label>Receive (estimated)</label></div>
@@ -936,6 +1119,7 @@ function renderHome() {
           </button>
           `}
 
+          ${swapReceiptHtml()}
           ${state.flash ? `<div class="toast ${state.flash.type}">${state.flash.msg}</div>` : ""}
         </div>
       </div>
@@ -955,10 +1139,12 @@ function renderHome() {
       ${activityFeedHtml()}
     </div>
 
+    ${compareStripHtml()}
+
     <section class="facts">
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Route intel</h3><p>Live price impact, min received, and fee estimate before you sign — not just a blind swap.</p></article>
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Lane pulse</h3><p>Compare every ticker's mid price, USDG depth, and health score side by side.</p></article>
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>On-chain feed</h3><p>Watch recent routes from the contract, plus your own trade history when connected.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Route intel</h3><p>Impact, min out, exec rate, and gas estimate — HoodSwap shows a quote. We show the full picture.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Pin lanes</h3><p>Star your tickers, sort by depth, and jump back with shareable deep links.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Live ticker</h3><p>Scrolling route tape plus per-lane recent volume — see what's moving before you trade.</p></article>
     </section>
   `);
 
@@ -1009,7 +1195,56 @@ function bindHomeEvents() {
   };
 
   $$("[data-stock]").forEach((btn) => {
-    btn.addEventListener("click", () => selectStock(btn.dataset.stock));
+    btn.addEventListener("click", (e) => {
+      if (e.target.closest("[data-pin]")) return;
+      selectStock(btn.dataset.stock);
+    });
+  });
+
+  $$("[data-pin]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      togglePinned(el.dataset.pin);
+      render();
+    });
+  });
+
+  const flipSwap = async () => {
+    state.mode = state.mode === "buy" ? "sell" : "buy";
+    if (state.amountIn && state.amountOut) {
+      const prevIn = state.amountIn;
+      state.amountIn = state.amountOut;
+      state.amountOut = prevIn;
+    } else {
+      state.amountIn = "";
+      state.amountOut = "";
+    }
+    syncHashParams();
+    await refreshQuote();
+    render();
+  };
+
+  $("#flip-swap")?.addEventListener("click", flipSwap);
+  $("#flip-swap-mid")?.addEventListener("click", flipSwap);
+  $("#share-route")?.addEventListener("click", copyShareLink);
+  $("#refresh-pools")?.addEventListener("click", async () => {
+    await refreshAllPools();
+    await refreshActivity();
+    if (state.amountIn) await refreshQuote();
+    setFlash("ok", "Lanes refreshed.");
+    render();
+  });
+  $("#dismiss-receipt")?.addEventListener("click", () => {
+    state.lastReceipt = null;
+    render();
+  });
+
+  $$("[data-quick]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      state.amountIn = btn.dataset.quick;
+      await refreshQuote();
+      render();
+    });
   });
 
   $$("[data-mode]").forEach((btn) => {
@@ -1031,6 +1266,10 @@ function bindHomeEvents() {
       await refreshQuote();
       render({ refocus: true });
     }, 350);
+  });
+
+  $("#amount-in")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !state.busy && state.amountIn) executeSwap();
   });
 
   $("[data-max='in']")?.addEventListener("click", async () => {
