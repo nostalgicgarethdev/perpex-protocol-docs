@@ -389,23 +389,28 @@ function renderHome() {
   const empty = poolEmpty();
 
   renderShell(`
-    <section class="hero">
-      <div class="hero-top">
-        <div>
-          <p class="intro-tag"><span class="tag-dot"></span>${CHAIN.name}</p>
-          <h1><span class="text-gradient">${BRAND.headline}</span></h1>
-          <p class="hero-sub">${BRAND.description}</p>
+    <section class="hero-banner">
+      <div class="hero-glass">
+        <p class="hero-eyebrow"><span class="tag-dot"></span>${CHAIN.name}</p>
+        <h1 class="hero-title">${BRAND.headline}</h1>
+        <p class="hero-lead">${BRAND.description}</p>
+        <div class="hero-cta">
+          <a href="#trade" class="btn-hero btn-hero-primary" id="hero-trade">Start trading</a>
+          <a href="#/pools" class="btn-hero btn-hero-secondary">View pools</a>
         </div>
-        <div class="stat-row">
-          <div class="stat-chip"><span>Markets</span><strong>${STOCKS.length}</strong></div>
-          <div class="stat-chip"><span>Live pools</span><strong>${countLivePools()}</strong></div>
-          <div class="stat-chip"><span>Swap fee</span><strong>${BRAND.fee}</strong></div>
-        </div>
+      </div>
+    </section>
+
+    <section class="hero-meta">
+      <div class="stat-row">
+        <div class="stat-chip"><span>Markets</span><strong>${STOCKS.length}</strong></div>
+        <div class="stat-chip"><span>Live pools</span><strong>${countLivePools()}</strong></div>
+        <div class="stat-chip"><span>Swap fee</span><strong>${BRAND.fee}</strong></div>
       </div>
       <div class="market-strip">${marketStripHtml()}</div>
     </section>
 
-    <div class="bento">
+    <div class="bento" id="trade">
       <section class="trade-panel">
         <div class="trade-card">
           <div class="trade-card-head">
@@ -491,6 +496,11 @@ function renderHome() {
 }
 
 function bindHomeEvents() {
+  $("#hero-trade")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    document.getElementById("trade")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
   $("#add-network")?.addEventListener("click", async () => {
     try {
       await ensureChain();
