@@ -264,6 +264,12 @@ function renderShell(content) {
 
   $("#app").innerHTML = `
     <div class="app">
+      <div class="ambient" aria-hidden="true">
+        <div class="orb orb-a"></div>
+        <div class="orb orb-b"></div>
+        <div class="orb orb-c"></div>
+        <div class="grid-overlay"></div>
+      </div>
       <header class="topbar">
         <a href="#/" class="brand">
           <img src="/assets/logo-mark.svg" alt="" width="30" height="30" />
@@ -282,7 +288,7 @@ function renderShell(content) {
           </button>
         </div>
       </header>
-      <main class="page">${content}</main>
+      <main class="page page-enter">${content}</main>
       <footer class="page-foot">
         <span>${BRAND.name} · Chain ${CHAIN.id}</span>
         <span class="page-foot-links">
@@ -325,8 +331,8 @@ function renderHome() {
 
   renderShell(`
     <section class="intro">
-      <p class="intro-tag">Spot · Testnet</p>
-      <h1>${BRAND.tagline}</h1>
+      <p class="intro-tag"><span class="tag-dot"></span>Spot · Testnet</p>
+      <h1><span class="text-gradient">Tokenized equities</span>, swapped onchain.</h1>
       <p class="intro-sub">Trade tokenized equities against USDG on Robinhood Chain. Connect a wallet, pick a market, swap.</p>
     </section>
 
