@@ -21,11 +21,14 @@ export async function loadGaslessConfig() {
   } catch {
     sponsorConfig = { gasless: false, batch: true };
   }
+  if (sponsorConfig?.gasless && !isGaslessPreferred()) {
+    setGaslessPreferred(true);
+  }
   return sponsorConfig;
 }
 
 export function gaslessSponsorActive() {
-  return Boolean(sponsorConfig?.gasless && sponsorConfig?.paymasterUrl);
+  return Boolean(sponsorConfig?.gasless && sponsorConfig?.policyId);
 }
 
 export function gaslessBatchAvailable() {
@@ -40,6 +43,70 @@ function encodeApprove(token, spender, amount) {
 function encodeSwap(params) {
   const iface = new Interface(SWAP_ROUTER_ABI);
   return iface.encodeFunctionData("exactInputSingle", [params]);
+}
+
+async function alchemyRpc(method, params) {
+  const res = await fetch("/api/alchemy-rpc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || "Alchemy RPC error");
+  return data.result;
+}
+
+async function signPreparedRequest(account, signatureRequest) {
+  if (!signatureRequest) throw new Error("Missing signature request");
+  const type = signatureRequest.type;
+  const payload = signatureRequest.data;
+
+  if (type === "personal_sign") {
+    return window.ethereum.request({
+      method: "personal_sign",
+      params: [payload.raw, account],
+    });
+  }
+  if (type === "eth_signTypedData_v4") {
+    const typed = typeof payload === "string" ? payload : JSON.stringify(payload);
+    return window.ethereum.request({
+      method: "eth_signTypedData_v4",
+      params: [account, typed],
+    });
+  }
+  throw new Error(`Unsupported signature type: ${type}`);
+}
+
+async function tryAlchemyGaslessSwap({ account, calls, policyId }) {
+  const prepared = await alchemyRpc("wallet_prepareCalls", [{
+    from: account,
+    chainId: CHAIN.hexId,
+    calls,
+    capabilities: {
+      paymasterService: { policyId },
+    },
+  }]);
+
+  const signature = await signPreparedRequest(account, prepared.signatureRequest);
+
+  const sendParams = {
+    type: prepared.type,
+    data: prepared.data,
+    chainId: prepared.chainId || CHAIN.hexId,
+    signature: {
+      type: "secp256k1",
+      data: signature,
+    },
+  };
+
+  const sent = await alchemyRpc("wallet_sendPreparedCalls", [sendParams]);
+  const hash = sent?.details?.data?.hash
+    || sent?.preparedCallIds?.[0]
+    || sent?.id;
+
+  if (!hash) throw new Error("Gasless route submitted but no transaction id returned.");
+
+  return { hash, batched: true, gasless: true };
 }
 
 export async function tryBatchSwapCalls({ tokenIn, approveAmount, swapParams, normalExecute }) {
@@ -63,11 +130,6 @@ export async function tryBatchSwapCalls({ tokenIn, approveAmount, swapParams, no
     value: "0x0",
   });
 
-  const capabilities = {};
-  if (gaslessSponsorActive() && sponsorConfig.paymasterUrl) {
-    capabilities.paymasterService = { url: sponsorConfig.paymasterUrl };
-  }
-
   try {
     const payload = {
       version: "1.0",
@@ -75,7 +137,6 @@ export async function tryBatchSwapCalls({ tokenIn, approveAmount, swapParams, no
       from: account,
       calls,
     };
-    if (Object.keys(capabilities).length) payload.capabilities = capabilities;
 
     const result = await window.ethereum.request({
       method: "wallet_sendCalls",
@@ -91,13 +152,17 @@ export async function tryBatchSwapCalls({ tokenIn, approveAmount, swapParams, no
           params: [id],
         });
         if (status?.status === 200 && status?.receipts?.[0]?.transactionHash) {
-          return { hash: status.receipts[status.receipts.length - 1].transactionHash, batched: true, gasless: gaslessSponsorActive() };
+          return {
+            hash: status.receipts[status.receipts.length - 1].transactionHash,
+            batched: true,
+            gasless: false,
+          };
         }
         if (status?.status >= 400) throw new Error(status?.error?.message || "Batch swap failed.");
       }
       throw new Error("Batch swap timed out.");
     }
-    return { hash: result, batched: true, gasless: gaslessSponsorActive() };
+    return { hash: result, batched: true, gasless: false };
   } catch (err) {
     if (err?.code === 4001) throw err;
     return normalExecute();
@@ -106,13 +171,39 @@ export async function tryBatchSwapCalls({ tokenIn, approveAmount, swapParams, no
 
 export async function executeWithGaslessOption(ctx) {
   const { tokenIn, approveAmount, swapParams, normalExecute } = ctx;
-  const useBatch = isGaslessPreferred() && (gaslessBatchAvailable() || gaslessSponsorActive());
-  if (!useBatch) return normalExecute();
+  if (!isGaslessPreferred()) return normalExecute();
 
-  return tryBatchSwapCalls({
-    tokenIn,
-    approveAmount,
-    swapParams,
-    normalExecute,
+  const account = getAccount();
+  const calls = [];
+  if (approveAmount > 0n) {
+    calls.push({
+      to: tokenIn.address,
+      data: encodeApprove(tokenIn.address, UNISWAP.router, approveAmount),
+      value: "0x0",
+    });
+  }
+  calls.push({
+    to: UNISWAP.router,
+    data: encodeSwap(swapParams),
+    value: "0x0",
   });
+
+  if (gaslessSponsorActive() && sponsorConfig.policyId) {
+    try {
+      return await tryAlchemyGaslessSwap({
+        account,
+        calls,
+        policyId: sponsorConfig.policyId,
+      });
+    } catch (err) {
+      if (err?.code === 4001) throw err;
+      console.warn("Alchemy gasless failed, falling back:", err);
+    }
+  }
+
+  if (gaslessBatchAvailable()) {
+    return tryBatchSwapCalls({ tokenIn, approveAmount, swapParams, normalExecute });
+  }
+
+  return normalExecute();
 }

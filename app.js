@@ -413,7 +413,7 @@ async function executeSwap() {
     }
     const minOut = (quoted * BigInt(10000 - state.slippage)) / 10000n;
     setFlash("ok", isGaslessPreferred() && isUniswapAmm()
-      ? "Confirm batched route in your wallet…"
+      ? (gaslessSponsorActive() ? "Confirm gasless route in your wallet…" : "Confirm batched route in your wallet…")
       : "Confirm swap in your wallet…");
 
     let receipt;
