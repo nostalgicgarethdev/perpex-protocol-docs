@@ -296,6 +296,8 @@ function renderShell(content) {
         <div class="glass-blob glass-blob-a"></div>
         <div class="glass-blob glass-blob-b"></div>
         <div class="glass-blob glass-blob-c"></div>
+        <div class="stars"></div>
+        <div class="mist"></div>
         <div class="noise"></div>
       </div>
       <div class="ticker-tape liquid-glass-subtle" aria-hidden="true">${tickerTapeHtml()}</div>
