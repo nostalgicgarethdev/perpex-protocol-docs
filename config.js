@@ -12,21 +12,6 @@ export const BRAND = {
 
 export const QUICK_BUY_AMOUNTS = [10, 50, 100, 500];
 
-export const VS_HOODSWAP = [
-  { label: "Mainnet swaps", us: true, them: false },
-  { label: "Route intel (impact + min out)", us: true, them: false },
-  { label: "Lane pulse dashboard", us: true, them: false },
-  { label: "Portfolio book", us: true, them: false },
-  { label: "Live on-chain feed", us: true, them: false },
-  { label: "Slippage controls", us: true, them: false },
-  { label: "Pin favorite lanes", us: true, them: false },
-  { label: "Shareable deep links", us: true, them: false },
-  { label: "24h lane volume", us: true, them: false },
-  { label: "Share route cards", us: true, them: false },
-  { label: "Gas saver / gasless batch", us: true, them: false },
-  { label: "12+ mainnet tickers", us: true, them: false },
-];
-
 export const SLIPPAGE_BPS = 50;
 export const FEE_BPS = 30;
 export const SLIPPAGE_OPTIONS = [10, 50, 100, 200];

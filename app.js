@@ -6,7 +6,6 @@ import {
   SWAP_ABI,
   ERC20_ABI,
   QUICK_BUY_AMOUNTS,
-  VS_HOODSWAP,
 } from "./config.js";
 import {
   getBrand,
@@ -980,34 +979,6 @@ function tickerTapeHtml() {
   `;
 }
 
-function compareStripHtml() {
-  return `
-    <section class="compare-strip liquid-glass">
-      <div class="compare-head">
-        <div>
-          <h3>TickerFlux vs HoodSwap</h3>
-          <p>Same chain — we built the terminal they didn't.</p>
-        </div>
-        <span class="compare-tag">Why we're better</span>
-      </div>
-      <div class="compare-table-wrap">
-        <table class="compare-table">
-          <thead><tr><th>Feature</th><th>TickerFlux</th><th>HoodSwap</th></tr></thead>
-          <tbody>
-            ${VS_HOODSWAP.map((row) => `
-              <tr>
-                <td>${row.label}</td>
-                <td class="compare-yes">${row.us ? "✓" : "—"}</td>
-                <td class="compare-no">${row.them ? "✓" : "—"}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  `;
-}
-
 function swapReceiptHtml() {
   if (!state.lastReceipt) return "";
   const r = state.lastReceipt;
@@ -1282,10 +1253,8 @@ function renderHome() {
       ${activityFeedHtml()}
     </div>
 
-    ${compareStripHtml()}
-
     <section class="facts">
-      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Route intel</h3><p>Impact, min out, exec rate, and gas estimate — HoodSwap shows a quote. We show the full picture.</p></article>
+      <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Route intel</h3><p>Impact, min out, exec rate, and gas estimate before you sign — not just a blind swap.</p></article>
       <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Pin lanes</h3><p>Star your tickers, sort by depth, and jump back with shareable deep links.</p></article>
       <article class="fact surface-card liquid-glass liquid-glass-hover"><h3>Live ticker</h3><p>Scrolling route tape plus per-lane recent volume — see what's moving before you trade.</p></article>
     </section>
