@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="TickerFlux">
   <defs>
     <linearGradient id="lg" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#C4B5FD"/>
-      <stop offset="50%" stop-color="#A78BFA"/>
-      <stop offset="100%" stop-color="#F472B6"/>
+      <stop offset="0%" stop-color="#F9A8D4"/>
+      <stop offset="50%" stop-color="#F472B6"/>
+      <stop offset="100%" stop-color="#EC4899"/>
     </linearGradient>
   </defs>
-  <rect x="6" y="6" width="52" height="52" rx="16" fill="#f3efff" stroke="url(#lg)" stroke-width="1.5"/>
+  <rect x="6" y="6" width="52" height="52" rx="16" fill="#fdf2f8" stroke="url(#lg)" stroke-width="1.5"/>
   <path d="M18 42 L32 18 L46 42" fill="none" stroke="url(#lg)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M24 36 L40 36" fill="none" stroke="#C4B5FD" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="32" cy="18" r="4" fill="#F472B6"/>
+  <path d="M24 36 L40 36" fill="none" stroke="#F9A8D4" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="32" cy="18" r="4" fill="#DB2777"/>
 </svg>
