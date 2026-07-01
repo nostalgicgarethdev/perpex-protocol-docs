@@ -271,7 +271,7 @@ function tickerTapeHtml() {
   const items = STOCKS.map((s) => {
     const pool = state.allPools[s.symbol] || [0n, 0n];
     const live = !poolEmpty(pool);
-    return `<span class="ticker-item"><span class="ticker-dot" style="background:${s.hue}"></span><span class="ticker-sym">${s.symbol}</span><span>/ USDG</span><span>${live ? "● live" : "○ empty"}</span></span>`;
+    return `<span class="ticker-item"><span class="ticker-dot" style="background:${s.hue}"></span><span class="ticker-sym">${s.symbol}</span><span>/ USDG</span><span class="ticker-status ${live ? "live" : ""}">${live ? "live" : "empty"}</span></span>`;
   }).join("");
   return `<div class="ticker-track">${items}${items}</div>`;
 }
@@ -293,9 +293,7 @@ function renderShell(content) {
     <div class="app">
       <div class="ambient" aria-hidden="true">
         <div class="aurora"></div>
-        <div class="stars"></div>
         <div class="noise"></div>
-        <div class="scanline"></div>
       </div>
       <div class="ticker-tape" aria-hidden="true">${tickerTapeHtml()}</div>
       <header class="topbar">
@@ -369,7 +367,7 @@ function sidePanelHtml(account) {
         <h3>Get started</h3>
         <p>Add Robinhood Chain testnet, grab test tokens, then connect.</p>
         <button class="btn-secondary" id="add-network">Add network</button>
-        <a href="#/faucet" class="btn-text" style="display:block;margin-top:0.5rem">Open faucet guide →</a>
+        <a href="#/faucet" class="btn-text" style="display:block;margin-top:0.5rem">Open faucet guide</a>
         ${!hasWallet() ? `<p class="setup-warn">No wallet extension detected.</p>` : ""}
       </div>` : `
       <div class="setup-card connected-card surface-card">
@@ -435,7 +433,7 @@ function renderHome() {
             </div>
           </div>
 
-          <div class="swap-divider"><button class="swap-arrow" type="button" tabindex="-1" aria-hidden="true">↓</button></div>
+          <div class="swap-divider"><span class="swap-arrow" aria-hidden="true"></span></div>
 
           <div class="field">
             <div class="field-top"><label>You receive</label></div>
@@ -454,7 +452,7 @@ function renderHome() {
           ${empty ? `
           <div class="notice">
             <strong>Pool empty.</strong> Seed ${state.stock.symbol} + USDG before swapping.
-            <button class="btn-text" id="jump-liq">Add liquidity →</button>
+            <button class="btn-text" id="jump-liq">Add liquidity</button>
           </div>` : ""}
 
           <button class="btn-primary" id="swap-btn" ${state.busy || state.walletBusy || empty ? "disabled" : ""}>
@@ -470,7 +468,7 @@ function renderHome() {
             <p>${empty
               ? `Seed this pool with both tokens. Try 0.1 ${state.stock.symbol} + 10 USDG.`
               : "Deposit more stock and USDG to deepen reserves."}</p>
-            ${empty ? `<p class="liq-faucets"><a href="#/faucet">Get test tokens →</a></p>` : ""}
+            ${empty ? `<p class="liq-faucets"><a href="#/faucet">Get test tokens</a></p>` : ""}
             <div class="liq-fields">
               <label>${state.stock.symbol}<input id="liq-stock" type="text" inputmode="decimal" placeholder="0.1" value="${state.liqStock}" /></label>
               <label>USDG<input id="liq-usdg" type="text" inputmode="decimal" placeholder="10" value="${state.liqUsdg}" /></label>
@@ -486,9 +484,9 @@ function renderHome() {
     </div>
 
     <section class="facts">
-      <article class="fact surface-card"><div class="fact-icon">⚡</div><h3>Constant-product AMM</h3><p>x·y = k — ${BRAND.fee} swap fee stays in the pool.</p></article>
-      <article class="fact surface-card"><div class="fact-icon">◈</div><h3>One pool per ticker</h3><p>TSLA, AMZN, PLTR, NFLX, AMD — each paired independently with USDG.</p></article>
-      <article class="fact surface-card"><div class="fact-icon">🔐</div><h3>Self-custody only</h3><p>No accounts or KYC. Your wallet signs every swap and deposit.</p></article>
+      <article class="fact surface-card"><h3>Constant-product AMM</h3><p>x·y = k — ${BRAND.fee} swap fee stays in the pool.</p></article>
+      <article class="fact surface-card"><h3>One pool per ticker</h3><p>TSLA, AMZN, PLTR, NFLX, AMD — each paired independently with USDG.</p></article>
+      <article class="fact surface-card"><h3>Self-custody only</h3><p>No accounts or KYC. Your wallet signs every swap and deposit.</p></article>
     </section>
   `);
 
@@ -671,7 +669,7 @@ function docsContract() {
         <tr><th>Chain</th><td>${CHAIN.name} (${CHAIN.id})</td></tr>
       </tbody>
     </table>
-    <p><a href="${CHAIN.explorer}/address/${CONTRACT.address}" target="_blank" rel="noreferrer">View on explorer →</a></p>
+    <p><a href="${CHAIN.explorer}/address/${CONTRACT.address}" target="_blank" rel="noreferrer">View on explorer</a></p>
     <p class="fine">Testnet demo. Not affiliated with Robinhood Markets.</p>
   `;
 }
@@ -681,7 +679,7 @@ function explorerLink(label, href, sub = "") {
     <a class="explorer-row" href="${href}" target="_blank" rel="noreferrer">
       <span class="explorer-row-label">${label}</span>
       ${sub ? `<span class="explorer-row-sub">${sub}</span>` : ""}
-      <span class="explorer-row-arrow">↗</span>
+      <span class="explorer-row-arrow" aria-hidden="true"></span>
     </a>
   `;
 }
@@ -691,7 +689,7 @@ function poolCardHtml(s) {
   const empty = poolEmpty(pool);
   const active = s.symbol === state.stock.symbol;
   return `
-    <article class="pool-card" style="${active ? "border-color:rgba(167,139,250,0.4)" : ""}">
+    <article class="pool-card" style="${active ? "border-color:rgba(20,184,166,0.35)" : ""}">
       <div class="pool-card-head">
         <div class="pool-card-ticker">
           <span class="market-pill-dot" style="background:${s.hue}"></span>
@@ -745,16 +743,16 @@ function renderFaucet() {
       </div>
       <div class="faucet-grid">
         <article class="faucet-card">
-          <div class="faucet-icon">⛽</div>
+          <span class="faucet-tag">ETH</span>
           <h3>ETH for gas</h3>
           <p>Robinhood Chain testnet ETH covers swap and liquidity transactions.</p>
-          <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer" class="btn-primary inline">Open ETH faucet ↗</a>
+          <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer" class="btn-primary inline">Open ETH faucet</a>
         </article>
         <article class="faucet-card">
-          <div class="faucet-icon">💵</div>
+          <span class="faucet-tag">USDG</span>
           <h3>USDG stablecoin</h3>
           <p>USDG is the quote asset for every stock pool. Mint test USDG via Paxos.</p>
-          <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer" class="btn-primary inline">Open USDG faucet ↗</a>
+          <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer" class="btn-primary inline">Open USDG faucet</a>
         </article>
       </div>
       <article class="sub-body surface-card">
