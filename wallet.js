@@ -1,5 +1,5 @@
 import { BrowserProvider, JsonRpcProvider } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
-import { CHAIN } from "./config.js";
+import { CHAIN } from "./network.js";
 
 let readProvider = new JsonRpcProvider(CHAIN.rpc);
 let walletProvider = null;
@@ -9,6 +9,10 @@ let chainOk = false;
 
 export function getReadProvider() {
   return readProvider;
+}
+
+export function resetReadProvider() {
+  readProvider = new JsonRpcProvider(CHAIN.rpc);
 }
 
 export function getSigner() {

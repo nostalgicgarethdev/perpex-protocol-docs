@@ -1,17 +1,35 @@
 import { Contract, formatUnits, parseUnits } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
 import {
-  BRAND,
-  CHAIN,
-  CONTRACT,
-  USDG,
-  STOCKS,
-  LINKS,
   SLIPPAGE_BPS,
   FEE_BPS,
   SLIPPAGE_OPTIONS,
   SWAP_ABI,
   ERC20_ABI,
 } from "./config.js";
+import {
+  getBrand,
+  CHAIN,
+  CONTRACT,
+  USDG,
+  STOCKS,
+  LINKS,
+  UNISWAP,
+  NETWORK_KEY,
+  SUPPORTS_LIQUIDITY,
+  isCustomAmm,
+  isUniswapAmm,
+  isMainnet,
+  getNetworkKeys,
+  setActiveNetworkKey,
+} from "./network.js";
+import {
+  findBestPool,
+  getPoolReserves,
+  quoteExactIn,
+  executeExactIn,
+  fetchPoolSwapEvents,
+  parsePoolSwapEvent,
+} from "./uniswap.js";
 import {
   getReadProvider,
   getSigner,
@@ -27,6 +45,8 @@ import {
   handleWalletClick,
 } from "./wallet.js";
 
+const BRAND = getBrand();
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -37,6 +57,8 @@ const state = {
   amountOut: "",
   pool: [0n, 0n],
   allPools: {},
+  poolMeta: {},
+  poolPrices: {},
   balances: {},
   slippage: SLIPPAGE_BPS,
   busy: false,
@@ -50,6 +72,10 @@ const state = {
   activityLoading: false,
   myTrades: [],
 };
+
+function swapSpender() {
+  return isUniswapAmm() ? UNISWAP.router : CONTRACT.address;
+}
 
 let poolPollTimer = null;
 
@@ -71,8 +97,13 @@ function route() {
   const base = raw.split("?")[0];
   const path = base.startsWith("/") ? base : `/${base}`;
   if (path === "/liquidity") {
-    state.liqOpen = true;
-    state.terminalTab = "deposit";
+    if (SUPPORTS_LIQUIDITY) {
+      state.liqOpen = true;
+      state.terminalTab = "deposit";
+    } else {
+      state.liqOpen = false;
+      state.terminalTab = "exchange";
+    }
   }
   return path;
 }
@@ -87,9 +118,12 @@ function applyHashParams() {
   const tab = params.get("tab");
   if (stock) state.stock = STOCKS.find((s) => s.symbol === stock.toUpperCase()) || state.stock;
   if (mode === "buy" || mode === "sell") state.mode = mode;
-  if (tab === "deposit") {
+  if (tab === "deposit" && SUPPORTS_LIQUIDITY) {
     state.terminalTab = "deposit";
     state.liqOpen = true;
+  } else if (tab === "deposit") {
+    state.terminalTab = "exchange";
+    state.liqOpen = false;
   } else if (tab === "exchange") {
     state.terminalTab = "exchange";
     state.liqOpen = false;
@@ -133,12 +167,25 @@ function erc20(token, writable = false) {
 async function refreshPool(symbol = state.stock.symbol) {
   const stock = STOCKS.find((s) => s.symbol === symbol) || state.stock;
   try {
-    const pool = await swapContract().getPool(stock.address);
-    const reserves = [pool.reserveStock ?? pool[0], pool.reserveUsdg ?? pool[1]];
-    state.allPools[symbol] = reserves;
-    if (symbol === state.stock.symbol) state.pool = reserves;
+    if (isUniswapAmm()) {
+      const meta = await findBestPool(stock);
+      state.poolMeta[symbol] = meta;
+      const { pool, midPrice } = await getPoolReserves(stock, meta);
+      state.allPools[symbol] = pool;
+      state.poolPrices[symbol] = midPrice;
+      if (symbol === state.stock.symbol) state.pool = pool;
+    } else {
+      const pool = await swapContract().getPool(stock.address);
+      const reserves = [pool.reserveStock ?? pool[0], pool.reserveUsdg ?? pool[1]];
+      state.allPools[symbol] = reserves;
+      delete state.poolMeta[symbol];
+      delete state.poolPrices[symbol];
+      if (symbol === state.stock.symbol) state.pool = reserves;
+    }
   } catch {
     state.allPools[symbol] = [0n, 0n];
+    state.poolMeta[symbol] = null;
+    delete state.poolPrices[symbol];
     if (symbol === state.stock.symbol) state.pool = [0n, 0n];
   }
 }
@@ -171,7 +218,17 @@ async function refreshQuote() {
   const tokenIn = state.mode === "buy" ? USDG : state.stock;
   try {
     const rawIn = parseUnits(state.amountIn, tokenIn.decimals);
-    const out = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
+    let out;
+    if (isUniswapAmm()) {
+      const fee = state.poolMeta[state.stock.symbol]?.fee;
+      if (!fee) {
+        state.amountOut = "";
+        return;
+      }
+      out = await quoteExactIn(state.stock, tokenIn, rawIn, fee);
+    } else {
+      out = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
+    }
     const tokenOut = state.mode === "buy" ? state.stock : USDG;
     state.amountOut = formatUnits(out, tokenOut.decimals);
   } catch {
@@ -181,11 +238,12 @@ async function refreshQuote() {
 
 async function approveIfNeeded(token, amount) {
   const account = getAccount();
+  const spender = swapSpender();
   const c = erc20(token, true);
-  const allowance = await c.allowance(account, CONTRACT.address);
+  const allowance = await c.allowance(account, spender);
   if (allowance >= amount) return;
   setFlash("ok", `Approve ${token.symbol} in your wallet…`);
-  const tx = await c.approve(CONTRACT.address, amount);
+  const tx = await c.approve(spender, amount);
   await tx.wait();
 }
 
@@ -200,7 +258,7 @@ async function onConnectClick() {
     await refreshAllPools();
     await refreshActivity();
     await refreshQuote();
-    setFlash("ok", isOnCorrectChain() ? "Wallet ready on Robinhood testnet." : "Connected — switch to Robinhood testnet.");
+    setFlash("ok", isOnCorrectChain() ? `Wallet ready on ${CHAIN.name}.` : `Connected — switch to ${CHAIN.name}.`);
   } catch (err) {
     setFlash("err", err?.shortMessage || err?.message || "Wallet error.");
   } finally {
@@ -221,23 +279,42 @@ async function executeSwap() {
     return;
   }
   if (state.pool[0] === 0n && state.pool[1] === 0n) {
-    setFlash("err", "Pool is empty — add liquidity first.");
+    setFlash("err", isUniswapAmm() ? "No Uniswap pool found for this lane." : "Pool is empty — add liquidity first.");
     return;
   }
 
   state.busy = true;
   render();
   try {
-    const quoted = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
+    let quoted;
+    if (isUniswapAmm()) {
+      const fee = state.poolMeta[state.stock.symbol]?.fee;
+      if (!fee) throw new Error("No Uniswap pool for this pair.");
+      quoted = await quoteExactIn(state.stock, tokenIn, rawIn, fee);
+    } else {
+      quoted = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
+    }
     const minOut = (quoted * BigInt(10000 - state.slippage)) / 10000n;
     await approveIfNeeded(tokenIn, rawIn);
     setFlash("ok", "Confirm swap in your wallet…");
-    const tx = await swapContract(true).swap(
-      state.stock.address,
-      tokenIn.address,
-      rawIn,
-      minOut
-    );
+    let tx;
+    if (isUniswapAmm()) {
+      tx = await executeExactIn(
+        state.stock,
+        tokenIn,
+        rawIn,
+        minOut,
+        state.poolMeta[state.stock.symbol].fee,
+        getAccount()
+      );
+    } else {
+      tx = await swapContract(true).swap(
+        state.stock.address,
+        tokenIn.address,
+        rawIn,
+        minOut
+      );
+    }
     await tx.wait();
     state.amountIn = "";
     state.amountOut = "";
@@ -319,6 +396,9 @@ function poolDepthPct(pool = state.pool) {
 }
 
 function midPrice(pool, stock) {
+  if (isUniswapAmm() && state.poolPrices[stock.symbol]) {
+    return state.poolPrices[stock.symbol];
+  }
   if (!pool || pool[0] === 0n) return null;
   const stockAmt = Number(formatUnits(pool[0], stock.decimals));
   const usdgAmt = Number(formatUnits(pool[1], USDG.decimals));
@@ -414,28 +494,57 @@ function portfolioSummary() {
 async function refreshActivity() {
   state.activityLoading = true;
   try {
-    const contract = swapContract();
     const latest = await getReadProvider().getBlockNumber();
     const from = Math.max(0, latest - 12000);
-    const events = await contract.queryFilter(contract.filters.Swap(), from, latest);
     const account = getAccount()?.toLowerCase();
-    const parsed = events.slice(-40).reverse().map((ev) => {
-      const stock = STOCKS.find((s) => s.address.toLowerCase() === ev.args.stock.toLowerCase());
-      const tokenInAddr = ev.args.tokenIn.toLowerCase();
-      const isUsdgIn = tokenInAddr === USDG.address.toLowerCase();
-      return {
-        stock,
-        user: ev.args.user,
-        side: isUsdgIn ? "buy" : "sell",
-        amountIn: ev.args.amountIn,
-        amountOut: ev.args.amountOut,
-        tokenIn: isUsdgIn ? USDG : stock,
-        tokenOut: isUsdgIn ? stock : USDG,
-        tx: ev.transactionHash,
-        block: ev.blockNumber,
-        mine: account && ev.args.user.toLowerCase() === account,
-      };
-    });
+    let parsed = [];
+
+    if (isUniswapAmm()) {
+      const eventGroups = await Promise.all(
+        STOCKS.map(async (stock) => {
+          let meta = state.poolMeta[stock.symbol];
+          if (!meta?.address) {
+            meta = await findBestPool(stock);
+            if (meta?.address) {
+              const loaded = await getPoolReserves(stock, meta);
+              meta = loaded.meta || meta;
+            }
+          }
+          if (!meta?.address || !meta?.token0) return [];
+          const events = await fetchPoolSwapEvents(meta.address, from, latest);
+          return events.map((ev) => parsePoolSwapEvent(ev, stock, meta.token0)).filter(Boolean);
+        })
+      );
+      parsed = eventGroups.flat();
+    } else {
+      const contract = swapContract();
+      const events = await contract.queryFilter(contract.filters.Swap(), from, latest);
+      parsed = events.map((ev) => {
+        const stock = STOCKS.find((s) => s.address.toLowerCase() === ev.args.stock.toLowerCase());
+        const tokenInAddr = ev.args.tokenIn.toLowerCase();
+        const isUsdgIn = tokenInAddr === USDG.address.toLowerCase();
+        return {
+          stock,
+          user: ev.args.user,
+          side: isUsdgIn ? "buy" : "sell",
+          amountIn: ev.args.amountIn,
+          amountOut: ev.args.amountOut,
+          tokenIn: isUsdgIn ? USDG : stock,
+          tokenOut: isUsdgIn ? stock : USDG,
+          tx: ev.transactionHash,
+          block: ev.blockNumber,
+        };
+      });
+    }
+
+    parsed = parsed
+      .sort((a, b) => b.block - a.block)
+      .slice(0, 40)
+      .map((ev) => ({
+        ...ev,
+        mine: account && ev.user?.toLowerCase() === account,
+      }));
+
     state.activity = parsed.slice(0, 12);
     state.myTrades = parsed.filter((e) => e.mine).slice(0, 6);
   } catch {
@@ -490,6 +599,9 @@ function renderShell(content) {
           ${NAV.map((n) => `<a href="#${n.href}" class="topnav-link ${n.match(path) ? "active" : ""}">${n.label}</a>`).join("")}
         </nav>
         <div class="topbar-end">
+          <div class="network-switch" role="group" aria-label="Network">
+            ${getNetworkKeys().map((key) => `<button class="network-btn ${key === NETWORK_KEY ? "active" : ""}" data-network="${key}" type="button">${key === "mainnet" ? "Mainnet" : "Testnet"}</button>`).join("")}
+          </div>
           <span class="chain-pill">RH · ${CHAIN.id}</span>
           <button class="wallet-btn ${hasAccount() && isOnCorrectChain() ? "on" : ""}" id="connect-btn" ${state.walletBusy ? "disabled" : ""}>
             ${state.walletBusy ? "…" : hasAccount() ? shortAddr(account) : "Connect"}
@@ -511,6 +623,9 @@ function renderShell(content) {
 
   $("#connect-btn")?.addEventListener("click", onConnectClick);
   $("#switch-chain")?.addEventListener("click", onConnectClick);
+  $$("[data-network]").forEach((btn) => {
+    btn.addEventListener("click", () => setActiveNetworkKey(btn.dataset.network));
+  });
   bindTopbarScroll();
 }
 
@@ -647,7 +762,7 @@ function activityFeedHtml() {
     <section class="activity-feed liquid-glass">
       <div class="activity-head">
         <h3>Live route feed</h3>
-        <p>Recent swaps pulled live from the AMM contract.</p>
+        <p>Recent swaps pulled live from ${isUniswapAmm() ? "Uniswap V3 pools" : "the AMM contract"}.</p>
       </div>
       ${hasAccount() && mine.length ? `
         <div class="activity-block">
@@ -673,10 +788,12 @@ function setupStripHtml(account) {
   }
   return `
     <div class="setup-strip liquid-glass-inset">
-      <p>Add Robinhood testnet, claim ETH + USDG, then connect your wallet.</p>
+      <p>${isMainnet()
+        ? "Add Robinhood Chain mainnet, bridge ETH + USDG, then connect your wallet."
+        : "Add Robinhood testnet, claim ETH + USDG, then connect your wallet."}</p>
       <div class="setup-strip-actions">
         <button class="btn-secondary inline" id="add-network" type="button">Add network</button>
-        <a href="#/faucet" class="btn-text">Faucet guide</a>
+        <a href="#/faucet" class="btn-text">${isMainnet() ? "Bridge guide" : "Faucet guide"}</a>
       </div>
       ${!hasWallet() ? `<p class="setup-warn">No wallet extension detected.</p>` : ""}
     </div>
@@ -719,11 +836,11 @@ function renderHome() {
       <div class="terminal-head">
         <div>
           <h2>Exchange terminal</h2>
-          <p>${state.stock.name} lane · ${state.stock.symbol} / USDG · ${BRAND.fee} route fee</p>
+          <p>${state.stock.name} lane · ${state.stock.symbol} / USDG · ${isUniswapAmm() ? "Uniswap V3" : `${BRAND.fee} route fee`}</p>
         </div>
         <div class="terminal-tabs" role="tablist">
           <button class="terminal-tab ${tab === "exchange" ? "active" : ""}" data-tab="exchange" type="button">Exchange</button>
-          <button class="terminal-tab ${tab === "deposit" ? "active" : ""}" data-tab="deposit" type="button">Deposit</button>
+          ${SUPPORTS_LIQUIDITY ? `<button class="terminal-tab ${tab === "deposit" ? "active" : ""}" data-tab="deposit" type="button">Deposit</button>` : ""}
         </div>
       </div>
 
@@ -767,8 +884,11 @@ function renderHome() {
 
           ${empty ? `
           <div class="notice">
-            <strong>Lane unseeded.</strong> Deposit ${state.stock.symbol} + USDG before routing trades.
-            <button class="btn-text" id="jump-liq" type="button">Open deposit tab</button>
+            <strong>${isUniswapAmm() ? "No pool liquidity." : "Lane unseeded."}</strong>
+            ${isUniswapAmm()
+              ? `No active Uniswap V3 pool found for ${state.stock.symbol} / USDG. Try another lane.`
+              : `Deposit ${state.stock.symbol} + USDG before routing trades.`}
+            ${SUPPORTS_LIQUIDITY ? `<button class="btn-text" id="jump-liq" type="button">Open deposit tab</button>` : ""}
           </div>` : ""}
 
           <button class="btn-primary" id="swap-btn" type="button" ${state.busy || state.walletBusy || empty ? "disabled" : ""}>
@@ -906,7 +1026,7 @@ function bindHomeEvents() {
 }
 
 const DOCS_PAGES = {
-  "/docs": { title: "Overview", lead: "Swap tokenized stocks on Robinhood Chain testnet.", render: docsOverview },
+  "/docs": { title: "Overview", lead: `Swap tokenized stocks on ${CHAIN.name}.`, render: docsOverview },
   "/docs/how-to-use": { title: "How to swap", lead: "Wallet setup and trade flow.", render: docsHowTo },
   "/docs/tokens": { title: "Token addresses", lead: "USDG and stock token contracts.", render: docsTokens },
   "/docs/architecture": { title: "How it works", lead: "AMM mechanics and contract surface.", render: docsArchitecture },
@@ -938,14 +1058,16 @@ function renderDocs() {
 
 function docsOverview() {
   return `
-    <p>${BRAND.name} is a minimal AMM on ${CHAIN.name}. Swap tokenized equities against USDG — each ticker has its own pool. Connect any EVM wallet, no registration.</p>
+    <p>${BRAND.name} routes tokenized equities against USDG on ${CHAIN.name}. ${isUniswapAmm() ? "Mainnet swaps execute through Uniswap V3." : "Each ticker has its own custom AMM pool."} Connect any EVM wallet, no registration.</p>
     <h2>Requirements</h2>
     <ul>
       <li><strong>ETH</strong> for gas</li>
       <li><strong>USDG</strong> to buy stocks</li>
       <li><strong>Stock tokens</strong> to sell</li>
     </ul>
-    <p>USDG: <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">Paxos testnet faucet</a>. Addresses: <a href="#/docs/tokens">token list</a>.</p>
+    <p>${isMainnet()
+      ? `Bridge assets via the <a href="${LINKS.bridge}" target="_blank" rel="noreferrer">Robinhood Chain bridge</a>.`
+      : `USDG: <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">Paxos testnet faucet</a>.`} Addresses: <a href="#/docs/tokens">token list</a>.</p>
     <a href="#/" class="btn-primary inline">Open markets</a>
   `;
 }
@@ -979,6 +1101,16 @@ function docsTokens() {
 }
 
 function docsArchitecture() {
+  if (isUniswapAmm()) {
+    return `
+      <p>Mainnet routes use Uniswap V3 concentrated-liquidity pools for each stock / USDG pair.</p>
+      <ul>
+        <li><code>Factory.getPool(tokenA, tokenB, fee)</code> — discover pool</li>
+        <li><code>QuoterV2.quoteExactInputSingle(...)</code> — quote</li>
+        <li><code>SwapRouter02.exactInputSingle(...)</code> — execute trade</li>
+      </ul>
+    `;
+  }
   return `
     <p>Constant-product pools pair each stock token with USDG.</p>
     <ul>
@@ -998,6 +1130,20 @@ function docsLiquidity() {
 }
 
 function docsContract() {
+  if (isUniswapAmm()) {
+    return `
+      <table class="data-table">
+        <tbody>
+          <tr><th>SwapRouter02</th><td><code>${UNISWAP.router}</code></td></tr>
+          <tr><th>QuoterV2</th><td><code>${UNISWAP.quoter}</code></td></tr>
+          <tr><th>V3 Factory</th><td><code>${UNISWAP.factory}</code></td></tr>
+          <tr><th>Chain</th><td>${CHAIN.name} (${CHAIN.id})</td></tr>
+        </tbody>
+      </table>
+      <p><a href="${CHAIN.explorer}/address/${UNISWAP.router}" target="_blank" rel="noreferrer">View router on explorer</a></p>
+      <p class="fine">Not affiliated with Robinhood Markets or Uniswap Labs.</p>
+    `;
+  }
   return `
     <table class="data-table">
       <tbody>
@@ -1072,6 +1218,44 @@ function renderPools() {
 }
 
 function renderFaucet() {
+  if (isMainnet()) {
+    renderShell(`
+      <section class="sub-page">
+        <div class="sub-header">
+          <h1>Get funds on mainnet</h1>
+          <p>Bridge ETH and USDG onto Robinhood Chain before your first swap on ${BRAND.name}.</p>
+        </div>
+        <div class="faucet-grid">
+          <article class="faucet-card liquid-glass liquid-glass-hover">
+            <span class="faucet-tag">Bridge</span>
+            <h3>Bridge to Robinhood Chain</h3>
+            <p>Use the canonical Arbitrum bridge or supported cross-chain routes to move ETH onto chain ${CHAIN.id}.</p>
+            <a href="${LINKS.bridge}" target="_blank" rel="noreferrer" class="btn-primary inline">Bridge guide</a>
+          </article>
+          <article class="faucet-card liquid-glass liquid-glass-hover">
+            <span class="faucet-tag">USDG</span>
+            <h3>USDG stablecoin</h3>
+            <p>USDG is the quote asset for every stock lane. Bridge or acquire USDG on Robinhood Chain mainnet.</p>
+            <a href="${LINKS.chainDocs}" target="_blank" rel="noreferrer" class="btn-primary inline">Chain docs</a>
+          </article>
+        </div>
+        <article class="sub-body surface-card liquid-glass">
+          <h2>Setup checklist</h2>
+          <ol class="steps-list">
+            <li>Install MetaMask or any EVM wallet extension.</li>
+            <li>Add ${CHAIN.name} (chain ID <code>${CHAIN.id}</code>) from the Trade page.</li>
+            <li>Bridge ETH for gas via the Robinhood Chain bridge.</li>
+            <li>Acquire USDG on mainnet (bridge or on-chain).</li>
+            <li>Connect your wallet and swap through Uniswap V3 routes.</li>
+          </ol>
+          <p class="fine">Canonical stock token addresses are listed in the <a href="#/docs/tokens">token docs</a>.</p>
+          <a href="#/" class="btn-secondary inline">Back to trade</a>
+        </article>
+      </section>
+    `);
+    return;
+  }
+
   renderShell(`
     <section class="sub-page">
       <div class="sub-header">
@@ -1118,13 +1302,21 @@ function renderExplorer() {
       <div class="sub-body">
         <h2>Network</h2>
         <div class="link-list">
-          ${explorerLink("Block explorer", CHAIN.explorer, "explorer.testnet.chain.robinhood.com")}
-          ${explorerLink("Deploy transaction", `${CHAIN.explorer}/tx/${CONTRACT.deployTx}`, shortAddr(CONTRACT.deployTx))}
+          ${explorerLink("Block explorer", CHAIN.explorer, CHAIN.explorer.replace("https://", ""))}
+          ${isCustomAmm() && CONTRACT.deployTx ? explorerLink("Deploy transaction", `${CHAIN.explorer}/tx/${CONTRACT.deployTx}`, shortAddr(CONTRACT.deployTx)) : ""}
         </div>
         <h2>Contracts</h2>
         <div class="link-list">
-          ${explorerLink("Swap contract", `${CHAIN.explorer}/address/${CONTRACT.address}`, CONTRACT.address)}
-          ${explorerLink("Deployer wallet", `${CHAIN.explorer}/address/${CONTRACT.deployer}`, CONTRACT.deployer)}
+          ${isUniswapAmm()
+            ? [
+              explorerLink("Uniswap SwapRouter02", `${CHAIN.explorer}/address/${UNISWAP.router}`, UNISWAP.router),
+              explorerLink("Uniswap QuoterV2", `${CHAIN.explorer}/address/${UNISWAP.quoter}`, UNISWAP.quoter),
+              explorerLink("Uniswap V3 Factory", `${CHAIN.explorer}/address/${UNISWAP.factory}`, UNISWAP.factory),
+            ].join("")
+            : [
+              explorerLink("Swap contract", `${CHAIN.explorer}/address/${CONTRACT.address}`, CONTRACT.address),
+              CONTRACT.deployer ? explorerLink("Deployer wallet", `${CHAIN.explorer}/address/${CONTRACT.deployer}`, CONTRACT.deployer) : "",
+            ].join("")}
         </div>
         <h2>Tokens</h2>
         <div class="link-list">
@@ -1154,15 +1346,15 @@ function renderRoadmap() {
     <section class="sub-page">
       <div class="sub-header">
         <h1>Roadmap</h1>
-        <p>Where ${BRAND.name} is today and what's coming next on Robinhood Chain testnet.</p>
+        <p>Where ${BRAND.name} is today and what's coming next on Robinhood Chain.</p>
       </div>
       <ol class="roadmap">
-        ${roadmapItem("done", "Phase 01 · Live", "Exchange terminal", "Wallet connect, lane selector, live reserve reads, and routed swaps against the deployed AMM.")}
+        ${roadmapItem("done", "Phase 01 · Live", "Exchange terminal", "Wallet connect, lane selector, live reserve reads, and routed swaps.")}
         ${roadmapItem("done", "Phase 02 · Live", "Reserve dashboard", "Per-lane vault view with depth bars and one-click jump back to the terminal.")}
-        ${roadmapItem("active", "Phase 03 · Now", "Lane seeding", "Deposit into remaining empty lanes and grow testnet reserves across all five pairs.")}
+        ${roadmapItem("active", "Phase 03 · Now", "Lane seeding", "Deposit into remaining empty testnet lanes and grow reserves across all five pairs.")}
         ${roadmapItem("done", "Phase 04 · Live", "Route analytics", "Price impact, lane pulse board, portfolio book, slippage controls, and live on-chain route feed.")}
+        ${roadmapItem("done", "Phase 06 · Live", "Mainnet", "Robinhood Chain mainnet support with Uniswap V3 routing and canonical token addresses.")}
         ${roadmapItem("planned", "Phase 05", "More tickers", "Expand as new tokenized equities deploy on Robinhood Chain.")}
-        ${roadmapItem("planned", "Phase 06", "Mainnet", "Audits, production config, and deployment when RH Chain mainnet opens.")}
       </ol>
     </section>
   `);

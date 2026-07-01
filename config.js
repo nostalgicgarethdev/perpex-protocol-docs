@@ -1,49 +1,11 @@
-export const CHAIN = {
-  id: 46630,
-  hexId: "0xb63e",
-  name: "Robinhood Chain Testnet",
-  rpc: "https://rpc.testnet.chain.robinhood.com",
-  explorer: "https://explorer.testnet.chain.robinhood.com",
-  currency: { name: "Ether", symbol: "ETH", decimals: 18 },
-};
-
 export const BRAND = {
   name: "TickerFlux",
   short: "TF",
-  tagline: "Isolated equity lanes on Robinhood Chain testnet.",
   headline: "Route between tickers and USDG.",
   description:
     "Each tokenized stock runs in its own reserve lane — with route intel, lane pulse, portfolio view, and a live on-chain feed built in.",
   url: "https://tickerflux-vercel.vercel.app",
   fee: "0.3%",
-};
-
-export const CONTRACT = {
-  address: "0x9b7f76c75cBAEd5801766cfA99DE15D198773dfe",
-  deployTx: "0xf2c85f81738ea12cc54f4c193514b6b9914ac03fa974695993b033c3c9f8b88a",
-  deployer: "0x4378C8691Cb661c6Dc6eCdfF045fc6851A8aF562",
-};
-
-export const USDG = {
-  symbol: "USDG",
-  name: "USDG Stablecoin",
-  address: "0x7E955252E15c84f5768B83c41a71F9eba181802F",
-  decimals: 18,
-  isStable: true,
-};
-
-export const STOCKS = [
-  { symbol: "TSLA", name: "Tesla", address: "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E", decimals: 18, hue: "#ef4444" },
-  { symbol: "AMZN", name: "Amazon", address: "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02", decimals: 18, hue: "#f59e0b" },
-  { symbol: "PLTR", name: "Palantir", address: "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0", decimals: 18, hue: "#22d3ee" },
-  { symbol: "NFLX", name: "Netflix", address: "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93", decimals: 18, hue: "#ef4444" },
-  { symbol: "AMD", name: "AMD", address: "0x71178BAc73cBeb415514eB542a8995b82669778d", decimals: 18, hue: "#22c55e" },
-];
-
-export const LINKS = {
-  ethFaucet: "https://faucet.testnet.chain.robinhood.com/",
-  paxosFaucet: "https://faucet.paxos.com/?network=robinhood",
-  chainDocs: "https://docs.robinhood.com/chain/",
 };
 
 export const SLIPPAGE_BPS = 50;
@@ -65,3 +27,119 @@ export const ERC20_ABI = [
   "function decimals() view returns (uint8)",
   "function symbol() view returns (string)",
 ];
+
+export const UNISWAP_FACTORY_ABI = [
+  "function getPool(address tokenA, address tokenB, uint24 fee) view returns (address pool)",
+];
+
+export const UNISWAP_POOL_ABI = [
+  "function token0() view returns (address)",
+  "function token1() view returns (address)",
+  "function liquidity() view returns (uint128)",
+  "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)",
+  "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)",
+];
+
+export const QUOTER_V2_ABI = [
+  "function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) view returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)",
+];
+
+export const SWAP_ROUTER_ABI = [
+  "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) external payable returns (uint256 amountOut)",
+];
+
+const STOCK_HUES = {
+  TSLA: "#ef4444",
+  AMZN: "#f59e0b",
+  PLTR: "#22d3ee",
+  NFLX: "#ef4444",
+  NVDA: "#76b900",
+  AMD: "#22c55e",
+};
+
+export const NETWORKS = {
+  mainnet: {
+    key: "mainnet",
+    label: "Mainnet",
+    chain: {
+      id: 4663,
+      hexId: "0x1237",
+      name: "Robinhood Chain",
+      rpc: "https://rpc.mainnet.chain.robinhood.com",
+      explorer: "https://robinhoodchain.blockscout.com",
+      currency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    },
+    tagline: "Isolated equity lanes on Robinhood Chain mainnet.",
+    ammType: "uniswap-v3",
+    uniswap: {
+      factory: "0x1f7d7550b1b028f7571e69a784071f0205fd2efa",
+      quoter: "0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7",
+      router: "0xcaf681a66d020601342297493863e78c959e5cb2",
+      feeTiers: [500, 3000, 10000],
+    },
+    contract: {
+      address: "0xcaf681a66d020601342297493863e78c959e5cb2",
+      label: "Uniswap SwapRouter02",
+    },
+    usdg: {
+      symbol: "USDG",
+      name: "USDG Stablecoin",
+      address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      decimals: 18,
+      isStable: true,
+    },
+    stocks: [
+      { symbol: "TSLA", name: "Tesla", address: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d", decimals: 18, hue: STOCK_HUES.TSLA },
+      { symbol: "AMZN", name: "Amazon", address: "0x12f190a9F9d7D37a250758b26824B97CE941bF54", decimals: 18, hue: STOCK_HUES.AMZN },
+      { symbol: "PLTR", name: "Palantir", address: "0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A", decimals: 18, hue: STOCK_HUES.PLTR },
+      { symbol: "NVDA", name: "NVIDIA", address: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", decimals: 18, hue: STOCK_HUES.NVDA },
+      { symbol: "AMD", name: "AMD", address: "0x86923f96303D656E4aa86D9d42D1e57ad2023fdC", decimals: 18, hue: STOCK_HUES.AMD },
+    ],
+    links: {
+      bridge: "https://docs.robinhood.com/chain/bridging",
+      chainDocs: "https://docs.robinhood.com/chain/",
+      uniswap: "https://app.uniswap.org",
+    },
+    supportsLiquidity: false,
+  },
+  testnet: {
+    key: "testnet",
+    label: "Testnet",
+    chain: {
+      id: 46630,
+      hexId: "0xb63e",
+      name: "Robinhood Chain Testnet",
+      rpc: "https://rpc.testnet.chain.robinhood.com",
+      explorer: "https://explorer.testnet.chain.robinhood.com",
+      currency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    },
+    tagline: "Isolated equity lanes on Robinhood Chain testnet.",
+    ammType: "custom",
+    contract: {
+      address: "0x9b7f76c75cBAEd5801766cfA99DE15D198773dfe",
+      deployTx: "0xf2c85f81738ea12cc54f4c193514b6b9914ac03fa974695993b033c3c9f8b88a",
+      deployer: "0x4378C8691Cb661c6Dc6eCdfF045fc6851A8aF562",
+      label: "TickerFlux AMM",
+    },
+    usdg: {
+      symbol: "USDG",
+      name: "USDG Stablecoin",
+      address: "0x7E955252E15c84f5768B83c41a71F9eba181802F",
+      decimals: 18,
+      isStable: true,
+    },
+    stocks: [
+      { symbol: "TSLA", name: "Tesla", address: "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E", decimals: 18, hue: STOCK_HUES.TSLA },
+      { symbol: "AMZN", name: "Amazon", address: "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02", decimals: 18, hue: STOCK_HUES.AMZN },
+      { symbol: "PLTR", name: "Palantir", address: "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0", decimals: 18, hue: STOCK_HUES.PLTR },
+      { symbol: "NFLX", name: "Netflix", address: "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93", decimals: 18, hue: STOCK_HUES.NFLX },
+      { symbol: "AMD", name: "AMD", address: "0x71178BAc73cBeb415514eB542a8995b82669778d", decimals: 18, hue: STOCK_HUES.AMD },
+    ],
+    links: {
+      ethFaucet: "https://faucet.testnet.chain.robinhood.com/",
+      paxosFaucet: "https://faucet.paxos.com/?network=robinhood",
+      chainDocs: "https://docs.robinhood.com/chain/",
+    },
+    supportsLiquidity: true,
+  },
+};
