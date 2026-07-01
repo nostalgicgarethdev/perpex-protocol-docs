@@ -257,32 +257,57 @@ function poolEmpty(pool = state.pool) {
   return pool[0] === 0n && pool[1] === 0n;
 }
 
+function countLivePools() {
+  return STOCKS.filter((s) => !poolEmpty(state.allPools[s.symbol] || [0n, 0n])).length;
+}
+
+function poolDepthPct(pool = state.pool) {
+  const total = Number(pool[0]) + Number(pool[1]);
+  if (!total) return 0;
+  return Math.min(100, Math.round((Number(pool[1]) / total) * 100));
+}
+
+function tickerTapeHtml() {
+  const items = STOCKS.map((s) => {
+    const pool = state.allPools[s.symbol] || [0n, 0n];
+    const live = !poolEmpty(pool);
+    return `<span class="ticker-item"><span class="ticker-dot" style="background:${s.hue}"></span><span class="ticker-sym">${s.symbol}</span><span>/ USDG</span><span>${live ? "● live" : "○ empty"}</span></span>`;
+  }).join("");
+  return `<div class="ticker-track">${items}${items}</div>`;
+}
+
+const NAV = [
+  { href: "/", label: "Trade", match: (p) => p === "/" },
+  { href: "/pools", label: "Pools", match: (p) => p === "/pools" },
+  { href: "/faucet", label: "Faucet", match: (p) => p === "/faucet" },
+  { href: "/docs", label: "Docs", match: (p) => p.startsWith("/docs") },
+  { href: "/explorer", label: "Explorer", match: (p) => p === "/explorer" },
+  { href: "/roadmap", label: "Roadmap", match: (p) => p === "/roadmap" },
+];
+
 function renderShell(content) {
   const path = route();
-  const isDocs = path.startsWith("/docs");
   const account = getAccount();
 
   $("#app").innerHTML = `
     <div class="app">
       <div class="ambient" aria-hidden="true">
-        <div class="orb orb-a"></div>
-        <div class="orb orb-b"></div>
-        <div class="orb orb-c"></div>
-        <div class="grid-overlay"></div>
+        <div class="aurora"></div>
+        <div class="stars"></div>
+        <div class="noise"></div>
+        <div class="scanline"></div>
       </div>
+      <div class="ticker-tape" aria-hidden="true">${tickerTapeHtml()}</div>
       <header class="topbar">
         <a href="#/" class="brand">
-          <img src="/assets/logo-mark.svg" alt="" width="30" height="30" />
+          <span class="brand-mark"><img src="/assets/logo-mark.svg" alt="" width="22" height="22" /></span>
           <span>${BRAND.name}</span>
         </a>
         <nav class="topnav">
-          <a href="#/" class="topnav-link ${path === "/" ? "active" : ""}">Markets</a>
-          <a href="#/docs" class="topnav-link ${isDocs ? "active" : ""}">Docs</a>
-          <a href="#/explorer" class="topnav-link ${path === "/explorer" ? "active" : ""}">Explorer</a>
-          <a href="#/roadmap" class="topnav-link ${path === "/roadmap" ? "active" : ""}">Roadmap</a>
+          ${NAV.map((n) => `<a href="#${n.href}" class="topnav-link ${n.match(path) ? "active" : ""}">${n.label}</a>`).join("")}
         </nav>
         <div class="topbar-end">
-          <span class="chain-pill">${CHAIN.name}</span>
+          <span class="chain-pill">RH · ${CHAIN.id}</span>
           <button class="wallet-btn ${account ? "on" : ""}" id="connect-btn" ${state.walletBusy ? "disabled" : ""}>
             ${state.walletBusy ? "…" : account ? shortAddr(account) : "Connect"}
           </button>
@@ -290,11 +315,12 @@ function renderShell(content) {
       </header>
       <main class="page page-enter">${content}</main>
       <footer class="page-foot">
-        <span>${BRAND.name} · Chain ${CHAIN.id}</span>
+        <span>${BRAND.name} · ${BRAND.tagline}</span>
         <span class="page-foot-links">
-          <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer">ETH faucet</a>
-          <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">USDG faucet</a>
-          <a href="${CHAIN.explorer}" target="_blank" rel="noreferrer">Explorer</a>
+          <a href="${BRAND.url}">${BRAND.url.replace("https://", "")}</a>
+          <a href="#/pools">Pools</a>
+          <a href="#/faucet">Faucet</a>
+          <a href="${CHAIN.explorer}" target="_blank" rel="noreferrer">Block explorer</a>
         </span>
       </footer>
     </div>
@@ -303,23 +329,56 @@ function renderShell(content) {
   $("#connect-btn")?.addEventListener("click", onConnectClick);
 }
 
-function marketListHtml() {
+function marketStripHtml() {
   return STOCKS.map((s) => {
     const pool = state.allPools[s.symbol] || [0n, 0n];
     const active = s.symbol === state.stock.symbol;
     const empty = poolEmpty(pool);
     return `
-      <button class="market-row ${active ? "active" : ""}" data-stock="${s.symbol}">
-        <div class="market-row-top">
-          <span class="market-sym">${s.symbol}</span>
-          <span class="market-name">${s.name}</span>
+      <button class="market-pill ${active ? "active" : ""}" data-stock="${s.symbol}">
+        <div class="market-pill-top">
+          <span class="market-pill-dot" style="background:${s.hue}"></span>
+          <span class="market-pill-sym">${s.symbol}</span>
         </div>
-        <div class="market-row-meta">
-          <span>${empty ? "No liquidity" : `${fmt(pool[0], s.decimals, 1)} / ${fmt(pool[1], USDG.decimals, 0)} USDG`}</span>
-        </div>
+        <div class="market-pill-name">${s.name}</div>
+        <div class="market-pill-meta">${empty ? "Awaiting liquidity" : `${fmt(pool[1], USDG.decimals, 0)} USDG`}</div>
       </button>
     `;
   }).join("");
+}
+
+function sidePanelHtml(account) {
+  const depth = poolDepthPct();
+  const empty = poolEmpty();
+  return `
+    <div class="side-stack">
+      <div class="setup-card pool-mini surface-card">
+        <h3>Pool depth</h3>
+        <div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(depth, 8)}%"></div></div>
+        <div class="depth-label">
+          <span>${state.stock.symbol}</span>
+          <span>${fmt(state.pool[0], state.stock.decimals, 2)}</span>
+        </div>
+        <div class="depth-label">
+          <span>USDG</span>
+          <span>${fmt(state.pool[1], USDG.decimals, 2)}</span>
+        </div>
+      </div>
+      ${!account ? `
+      <div class="setup-card surface-card">
+        <h3>Get started</h3>
+        <p>Add Robinhood Chain testnet, grab test tokens, then connect.</p>
+        <button class="btn-secondary" id="add-network">Add network</button>
+        <a href="#/faucet" class="btn-text" style="display:block;margin-top:0.5rem">Open faucet guide →</a>
+        ${!hasWallet() ? `<p class="setup-warn">No wallet extension detected.</p>` : ""}
+      </div>` : `
+      <div class="setup-card connected-card surface-card">
+        <h3>Connected</h3>
+        <p class="mono">${shortAddr(account)}</p>
+        <button class="btn-text" id="disconnect-btn">Disconnect</button>
+      </div>`}
+    </div>
+  `;
 }
 
 function renderHome() {
@@ -330,39 +389,29 @@ function renderHome() {
   const empty = poolEmpty();
 
   renderShell(`
-    <section class="intro">
-      <p class="intro-tag"><span class="tag-dot"></span>Robinhood Chain · Testnet</p>
-      <h1><span class="text-gradient">Ticker by ticker</span>, swapped onchain.</h1>
-      <p class="intro-sub">${BRAND.description}</p>
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <p class="intro-tag"><span class="tag-dot"></span>${CHAIN.name}</p>
+          <h1><span class="text-gradient">${BRAND.headline}</span></h1>
+          <p class="hero-sub">${BRAND.description}</p>
+        </div>
+        <div class="stat-row">
+          <div class="stat-chip"><span>Markets</span><strong>${STOCKS.length}</strong></div>
+          <div class="stat-chip"><span>Live pools</span><strong>${countLivePools()}</strong></div>
+          <div class="stat-chip"><span>Swap fee</span><strong>${BRAND.fee}</strong></div>
+        </div>
+      </div>
+      <div class="market-strip">${marketStripHtml()}</div>
     </section>
 
-    <div class="trade-layout">
-      <aside class="markets-panel">
-        <div class="panel-head">
-          <h2>Markets</h2>
-          <span class="panel-sub">${STOCKS.length} pairs</span>
-        </div>
-        <div class="market-list">${marketListHtml()}</div>
-        ${!account ? `
-        <div class="setup-card">
-          <h3>Setup</h3>
-          <p>Add Robinhood Chain testnet to your wallet before connecting.</p>
-          <button class="btn-secondary" id="add-network">Add network</button>
-          ${!hasWallet() ? `<p class="setup-warn">No wallet extension detected.</p>` : ""}
-        </div>` : `
-        <div class="setup-card connected-card">
-          <h3>Wallet</h3>
-          <p class="mono">${shortAddr(account)}</p>
-          <button class="btn-text" id="disconnect-btn">Disconnect</button>
-        </div>`}
-      </aside>
-
+    <div class="bento">
       <section class="trade-panel">
         <div class="trade-card">
           <div class="trade-card-head">
             <div>
               <h2>${state.stock.symbol} / USDG</h2>
-              <p>${state.stock.name} · 0.3% fee</p>
+              <p>${state.stock.name} · ${BRAND.fee} fee · isolated pool</p>
             </div>
             <div class="dir-switch">
               <button class="dir-btn ${state.mode === "buy" ? "active" : ""}" data-mode="buy">Buy</button>
@@ -372,7 +421,7 @@ function renderHome() {
 
           <div class="field">
             <div class="field-top">
-              <label>Pay with</label>
+              <label>You pay</label>
               ${balIn !== undefined && account ? `<button class="field-max" data-max="in">Max ${fmt(balIn, tokenIn.decimals, 2)}</button>` : ""}
             </div>
             <div class="field-row">
@@ -381,8 +430,10 @@ function renderHome() {
             </div>
           </div>
 
+          <div class="swap-divider"><button class="swap-arrow" type="button" tabindex="-1" aria-hidden="true">↓</button></div>
+
           <div class="field">
-            <div class="field-top"><label>Receive</label></div>
+            <div class="field-top"><label>You receive</label></div>
             <div class="field-row">
               <input class="readonly" readonly placeholder="0.00" value="${state.amountOut ? Number(state.amountOut).toLocaleString(undefined, { maximumFractionDigits: 6 }) : ""}" />
               <span class="field-token">${tokenOut.symbol}</span>
@@ -390,14 +441,14 @@ function renderHome() {
           </div>
 
           <div class="trade-stats">
-            <div><span>Pool ${state.stock.symbol}</span><strong>${fmt(state.pool[0], state.stock.decimals, 2)}</strong></div>
-            <div><span>Pool USDG</span><strong>${fmt(state.pool[1], USDG.decimals, 2)}</strong></div>
-            <div><span>Slippage</span><strong>${(state.slippage / 100).toFixed(1)}%</strong></div>
+            <div><span>Reserve ${state.stock.symbol}</span><strong>${fmt(state.pool[0], state.stock.decimals, 2)}</strong></div>
+            <div><span>Reserve USDG</span><strong>${fmt(state.pool[1], USDG.decimals, 2)}</strong></div>
+            <div><span>Slippage cap</span><strong>${(state.slippage / 100).toFixed(1)}%</strong></div>
           </div>
 
           ${empty ? `
           <div class="notice">
-            <strong>Pool empty.</strong> Add ${state.stock.symbol} + USDG liquidity before swapping.
+            <strong>Pool empty.</strong> Seed ${state.stock.symbol} + USDG before swapping.
             <button class="btn-text" id="jump-liq">Add liquidity →</button>
           </div>` : ""}
 
@@ -408,13 +459,13 @@ function renderHome() {
           ${state.flash ? `<div class="toast ${state.flash.type}">${state.flash.msg}</div>` : ""}
         </div>
 
-        <details class="liq-details" id="liquidity" ${state.liqOpen ? "open" : ""}>
+        <details class="liq-details surface-card" id="liquidity" ${state.liqOpen ? "open" : ""}>
           <summary>Provide liquidity</summary>
           <div class="liq-body">
             <p>${empty
               ? `Seed this pool with both tokens. Try 0.1 ${state.stock.symbol} + 10 USDG.`
-              : "Add more stock and USDG to deepen the pool."}</p>
-            ${empty ? `<p class="liq-faucets"><a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer">ETH faucet</a> · <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer">USDG faucet</a></p>` : ""}
+              : "Deposit more stock and USDG to deepen reserves."}</p>
+            ${empty ? `<p class="liq-faucets"><a href="#/faucet">Get test tokens →</a></p>` : ""}
             <div class="liq-fields">
               <label>${state.stock.symbol}<input id="liq-stock" type="text" inputmode="decimal" placeholder="0.1" value="${state.liqStock}" /></label>
               <label>USDG<input id="liq-usdg" type="text" inputmode="decimal" placeholder="10" value="${state.liqUsdg}" /></label>
@@ -425,12 +476,14 @@ function renderHome() {
           </div>
         </details>
       </section>
+
+      <aside>${sidePanelHtml(account)}</aside>
     </div>
 
     <section class="facts">
-      <article class="fact"><h3>Constant-product AMM</h3><p>x·y = k with 0.3% swap fee retained in the pool.</p></article>
-      <article class="fact"><h3>Isolated pools</h3><p>Each stock has its own USDG pair — reserves are independent.</p></article>
-      <article class="fact"><h3>Self-custody</h3><p>No accounts. Your wallet signs every swap and liquidity deposit.</p></article>
+      <article class="fact surface-card"><div class="fact-icon">⚡</div><h3>Constant-product AMM</h3><p>x·y = k — ${BRAND.fee} swap fee stays in the pool.</p></article>
+      <article class="fact surface-card"><div class="fact-icon">◈</div><h3>One pool per ticker</h3><p>TSLA, AMZN, PLTR, NFLX, AMD — each paired independently with USDG.</p></article>
+      <article class="fact surface-card"><div class="fact-icon">🔐</div><h3>Self-custody only</h3><p>No accounts or KYC. Your wallet signs every swap and deposit.</p></article>
     </section>
   `);
 
@@ -623,6 +676,93 @@ function explorerLink(label, href, sub = "") {
   `;
 }
 
+function poolCardHtml(s) {
+  const pool = state.allPools[s.symbol] || [0n, 0n];
+  const empty = poolEmpty(pool);
+  const active = s.symbol === state.stock.symbol;
+  return `
+    <article class="pool-card" style="${active ? "border-color:rgba(167,139,250,0.4)" : ""}">
+      <div class="pool-card-head">
+        <div class="pool-card-ticker">
+          <span class="market-pill-dot" style="background:${s.hue}"></span>
+          <div><h3>${s.symbol}</h3><span>${s.name}</span></div>
+        </div>
+        <span class="pool-status ${empty ? "empty" : "live"}">${empty ? "Empty" : "Live"}</span>
+      </div>
+      <div class="pool-metrics">
+        <div class="pool-metric"><span>${s.symbol} reserve</span><strong>${fmt(pool[0], s.decimals, 3)}</strong></div>
+        <div class="pool-metric"><span>USDG reserve</span><strong>${fmt(pool[1], USDG.decimals, 2)}</strong></div>
+      </div>
+      <div class="depth-bar"><div class="depth-fill" style="width:${empty ? 0 : Math.max(poolDepthPct(pool), 6)}%"></div></div>
+      <a href="#/" class="btn-secondary" data-goto="${s.symbol}">${empty ? "Seed pool" : "Trade"} ${s.symbol}</a>
+    </article>
+  `;
+}
+
+function renderPools() {
+  renderShell(`
+    <section class="sub-page">
+      <div class="sub-header">
+        <h1>Liquidity Pools</h1>
+        <p>${countLivePools()} of ${STOCKS.length} pools seeded on ${CHAIN.name}. Each ticker trades against USDG in isolation.</p>
+      </div>
+      <div class="pools-grid">
+        ${STOCKS.map(poolCardHtml).join("")}
+      </div>
+    </section>
+  `);
+
+  $$("[data-goto]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      state.stock = STOCKS.find((s) => s.symbol === btn.dataset.goto) || STOCKS[0];
+      state.amountIn = "";
+      state.amountOut = "";
+      location.hash = "#/";
+      await refreshPool();
+      await refreshQuote();
+      render();
+    });
+  });
+}
+
+function renderFaucet() {
+  renderShell(`
+    <section class="sub-page">
+      <div class="sub-header">
+        <h1>Testnet Faucet</h1>
+        <p>Grab gas and USDG before your first swap on ${BRAND.name}.</p>
+      </div>
+      <div class="faucet-grid">
+        <article class="faucet-card">
+          <div class="faucet-icon">⛽</div>
+          <h3>ETH for gas</h3>
+          <p>Robinhood Chain testnet ETH covers swap and liquidity transactions.</p>
+          <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer" class="btn-primary inline">Open ETH faucet ↗</a>
+        </article>
+        <article class="faucet-card">
+          <div class="faucet-icon">💵</div>
+          <h3>USDG stablecoin</h3>
+          <p>USDG is the quote asset for every stock pool. Mint test USDG via Paxos.</p>
+          <a href="${LINKS.paxosFaucet}" target="_blank" rel="noreferrer" class="btn-primary inline">Open USDG faucet ↗</a>
+        </article>
+      </div>
+      <article class="sub-body surface-card">
+        <h2>Setup checklist</h2>
+        <ol class="steps-list">
+          <li>Install MetaMask or any EVM wallet extension.</li>
+          <li>Add ${CHAIN.name} (chain ID <code>${CHAIN.id}</code>) from the Trade page.</li>
+          <li>Claim ETH from the Robinhood faucet for transaction fees.</li>
+          <li>Mint USDG from the Paxos testnet faucet.</li>
+          <li>Connect your wallet and swap — or seed an empty pool with liquidity.</li>
+        </ol>
+        <p class="fine">Stock tokens are already deployed on testnet. You only need ETH + USDG to start buying.</p>
+        <a href="#/" class="btn-secondary inline">Back to trade</a>
+      </article>
+    </section>
+  `);
+}
+
 function renderExplorer() {
   renderShell(`
     <section class="sub-page">
@@ -672,12 +812,12 @@ function renderRoadmap() {
         <p>Where ${BRAND.name} is today and what's coming next on Robinhood Chain testnet.</p>
       </div>
       <ol class="roadmap">
-        ${roadmapItem("done", "Phase 01 · Live", "Swap interface", "Five stock/USDG markets, wallet connect, live pool reads, and on-chain swaps against the deployed AMM contract.")}
-        ${roadmapItem("done", "Phase 02 · Live", "Liquidity tooling", "In-app liquidity deposits so pools can be seeded without leaving the interface.")}
-        ${roadmapItem("active", "Phase 03 · Now", "Market depth", "Seed remaining empty pools and improve testnet liquidity across all five pairs.")}
-        ${roadmapItem("planned", "Phase 04", "Price charts", "Historical swap volume and pool reserve charts per market.")}
-        ${roadmapItem("planned", "Phase 05", "More RWAs", "Expand beyond the initial five tickers as new tokenized equities land on chain.")}
-        ${roadmapItem("planned", "Phase 06", "Mainnet ready", "Audit, hardened oracle assumptions, and production deployment when Robinhood Chain mainnet opens.")}
+        ${roadmapItem("done", "Phase 01 · Live", "Trade terminal", "Wallet connect, live pool reads, buy/sell against the deployed AMM — dark UI with ticker tape.")}
+        ${roadmapItem("done", "Phase 02 · Live", "Pools dashboard", "Per-ticker reserve view with depth bars and one-click jump to trade.")}
+        ${roadmapItem("active", "Phase 03 · Now", "Liquidity depth", "Seed remaining empty pools and grow testnet reserves across all five pairs.")}
+        ${roadmapItem("planned", "Phase 04", "Analytics", "Volume charts, price impact estimator, and historical reserve graphs.")}
+        ${roadmapItem("planned", "Phase 05", "More tickers", "Expand as new tokenized equities deploy on Robinhood Chain.")}
+        ${roadmapItem("planned", "Phase 06", "Mainnet", "Audits, production config, and deployment when RH Chain mainnet opens.")}
       </ol>
     </section>
   `);
@@ -692,6 +832,10 @@ function render(opts = {}) {
       try { await ensureChain(); alert(`${CHAIN.name} added.`); }
       catch (e) { alert(e.message); }
     });
+  } else if (path === "/pools") {
+    renderPools();
+  } else if (path === "/faucet") {
+    renderFaucet();
   } else if (path === "/explorer") {
     renderExplorer();
   } else if (path === "/roadmap") {

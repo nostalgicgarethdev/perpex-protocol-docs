@@ -1,18 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="TickerFlux">
   <defs>
-    <linearGradient id="p" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#22D3EE"/>
-      <stop offset="55%" stop-color="#14C2B2"/>
-      <stop offset="100%" stop-color="#0E9E92"/>
+    <linearGradient id="lg" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#C4B5FD"/>
+      <stop offset="50%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#F472B6"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="15" fill="#ffffff"/>
-  <rect x="0.6" y="0.6" width="62.8" height="62.8" rx="14.4" fill="none" stroke="#0f1c33" stroke-opacity="0.10"/>
-  <g transform="translate(8 8) scale(0.9583)">
-    <path d="M24 3 L42 13.5 V34.5 L24 45 L6 34.5 V13.5 Z" fill="url(#p)"/>
-    <path d="M24 3 L42 13.5 L24 24 L6 13.5 Z" fill="#ffffff" fill-opacity="0.28"/>
-    <path d="M24 24 L42 13.5 V34.5 L24 45 Z" fill="#0B1626" fill-opacity="0.10"/>
-    <path d="M24 24 L24 45 L6 34.5 V13.5 Z" fill="#ffffff" fill-opacity="0.10"/>
-    <path d="M24 12 L31 16 L24 20 L17 16 Z" fill="#ffffff" fill-opacity="0.55"/>
-  </g>
+  <rect x="6" y="6" width="52" height="52" rx="16" fill="#0c1020" stroke="url(#lg)" stroke-width="1.5"/>
+  <path d="M18 42 L32 18 L46 42" fill="none" stroke="url(#lg)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 36 L40 36" fill="none" stroke="#FBBF24" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="32" cy="18" r="4" fill="#FBBF24"/>
 </svg>

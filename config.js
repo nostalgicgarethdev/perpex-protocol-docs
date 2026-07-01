@@ -9,11 +9,13 @@ export const CHAIN = {
 
 export const BRAND = {
   name: "TickerFlux",
-  short: "TickerFlux",
-  tagline: "Swap tokenized tickers against USDG on Robinhood Chain.",
+  short: "TF",
+  tagline: "The flux layer for tokenized equities.",
+  headline: "Swap tickers. Flow liquidity.",
   description:
-    "A minimal AMM for swapping tokenized stocks against USDG on Robinhood Chain testnet. Each listed stock has its own pool paired with USDG.",
+    "A minimal AMM on Robinhood Chain testnet — each tokenized stock trades against USDG in its own isolated pool.",
   url: "https://tickerflux-vercel.vercel.app",
+  fee: "0.3%",
 };
 
 export const CONTRACT = {
@@ -31,11 +33,11 @@ export const USDG = {
 };
 
 export const STOCKS = [
-  { symbol: "TSLA", name: "Tesla", address: "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E", decimals: 18 },
-  { symbol: "AMZN", name: "Amazon", address: "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02", decimals: 18 },
-  { symbol: "PLTR", name: "Palantir", address: "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0", decimals: 18 },
-  { symbol: "NFLX", name: "Netflix", address: "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93", decimals: 18 },
-  { symbol: "AMD", name: "AMD", address: "0x71178BAc73cBeb415514eB542a8995b82669778d", decimals: 18 },
+  { symbol: "TSLA", name: "Tesla", address: "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E", decimals: 18, hue: "#ef4444" },
+  { symbol: "AMZN", name: "Amazon", address: "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02", decimals: 18, hue: "#f59e0b" },
+  { symbol: "PLTR", name: "Palantir", address: "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0", decimals: 18, hue: "#22d3ee" },
+  { symbol: "NFLX", name: "Netflix", address: "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93", decimals: 18, hue: "#ef4444" },
+  { symbol: "AMD", name: "AMD", address: "0x71178BAc73cBeb415514eB542a8995b82669778d", decimals: 18, hue: "#22c55e" },
 ];
 
 export const LINKS = {
