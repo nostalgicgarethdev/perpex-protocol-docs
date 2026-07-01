@@ -7,11 +7,16 @@ export const CHAIN = {
   currency: { name: "Ether", symbol: "ETH", decimals: 18 },
 };
 
+export const BRAND = {
+  name: "Perpex",
+  tagline: "Swap tokenized stocks on Robinhood Chain testnet.",
+};
+
 export const CONTRACT = {
   address: "0x9b7f76c75cBAEd5801766cfA99DE15D198773dfe",
   deployTx: "0xf2c85f81738ea12cc54f4c193514b6b9914ac03fa974695993b033c3c9f8b88a",
   deployer: "0x4378C8691Cb661c6Dc6eCdfF045fc6851A8aF562",
-  source: "https://github.com/tradeperpex/hoodswap/blob/main/contracts/src/HoodSwap.sol",
+  source: "https://github.com/tradeperpex/tradeperpex",
 };
 
 export const USDG = {
@@ -31,17 +36,18 @@ export const STOCKS = [
 ];
 
 export const LINKS = {
-  site: "https://hoodswap.app",
-  x: "https://x.com/hoodchainswap",
+  site: "https://tradeperpex.fun",
+  x: "https://x.com/tradeperpex",
   docs: "https://docs.robinhood.com/chain/",
   ethFaucet: "https://faucet.testnet.chain.robinhood.com/",
   paxosFaucet: "https://faucet.paxos.com/?network=robinhood",
-  github: "https://github.com/tradeperpex/hoodswap",
+  github: "https://github.com/tradeperpex/tradeperpex",
+  launchpad: "https://tradeperpex.fun/launchpad",
 };
 
 export const SLIPPAGE_BPS = 50;
 
-export const HOODSWAP_ABI = [
+export const SWAP_ABI = [
   "function getPool(address stock) view returns (uint112 reserveStock, uint112 reserveUsdg)",
   "function getAmountOut(address stock, address tokenIn, uint256 amountIn) view returns (uint256)",
   "function swap(address stock, address tokenIn, uint256 amountIn, uint256 minAmountOut) returns (uint256 amountOut)",

@@ -1,14 +1,18 @@
 import { BrowserProvider, Contract, formatUnits, parseUnits } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
 import {
+  BRAND,
   CHAIN,
   CONTRACT,
   USDG,
   STOCKS,
   LINKS,
   SLIPPAGE_BPS,
-  HOODSWAP_ABI,
+  SWAP_ABI,
   ERC20_ABI,
 } from "./config.js";
+
+const ACCENT = "#0E9E92";
+const ACCENT_BRIGHT = "#14C2B2";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -103,8 +107,8 @@ async function connectWallet() {
   }
 }
 
-function hoodswap() {
-  return new Contract(CONTRACT.address, HOODSWAP_ABI, signer || provider);
+function swapContract() {
+  return new Contract(CONTRACT.address, SWAP_ABI, signer || provider);
 }
 
 function erc20(token, withSigner = false) {
@@ -114,7 +118,7 @@ function erc20(token, withSigner = false) {
 async function refreshPool() {
   if (!provider) return;
   try {
-    const pool = await hoodswap().getPool(state.stock.address);
+    const pool = await swapContract().getPool(state.stock.address);
     state.pool = [pool.reserveStock ?? pool[0], pool.reserveUsdg ?? pool[1]];
   } catch {
     state.pool = [0n, 0n];
@@ -144,7 +148,7 @@ async function refreshQuote() {
   const tokenIn = state.mode === "buy" ? USDG : state.stock;
   try {
     const rawIn = parseUnits(state.amountIn, tokenIn.decimals);
-    const out = await hoodswap().getAmountOut(state.stock.address, tokenIn.address, rawIn);
+    const out = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
     const tokenOut = state.mode === "buy" ? state.stock : USDG;
     state.amountOut = formatUnits(out, tokenOut.decimals);
   } catch {
@@ -180,11 +184,11 @@ async function executeSwap() {
   state.busy = true;
   render();
   try {
-    const quoted = await hoodswap().getAmountOut(state.stock.address, tokenIn.address, rawIn);
+    const quoted = await swapContract().getAmountOut(state.stock.address, tokenIn.address, rawIn);
     const minOut = quoted * BigInt(10000 - state.slippage) / 10000n;
     await approveIfNeeded(tokenIn, rawIn);
     setFlash("ok", "Confirm swap in your wallet…");
-    const tx = await hoodswap().connect(signer).swap(
+    const tx = await swapContract().connect(signer).swap(
       state.stock.address,
       tokenIn.address,
       rawIn,
@@ -215,7 +219,7 @@ async function executeLiquidity() {
     await approveIfNeeded(state.stock, stockAmt);
     await approveIfNeeded(USDG, usdgAmt);
     setFlash("ok", "Confirm add liquidity in your wallet…");
-    const tx = await hoodswap().connect(signer).addLiquidity(state.stock.address, stockAmt, usdgAmt);
+    const tx = await swapContract().connect(signer).addLiquidity(state.stock.address, stockAmt, usdgAmt);
     await tx.wait();
     state.liqStock = "";
     state.liqUsdg = "";
@@ -259,8 +263,8 @@ function renderShell(content) {
         <header class="nav-bar">
           <div class="nav-brand">
             <a href="#/" class="logo">
-              <img class="logo-mark" src="/assets/favicon.svg" alt="" width="28" height="28" />
-              <span class="logo-word">hoodswap</span>
+              <img class="logo-mark" src="/assets/logo-mark.svg" alt="" width="28" height="28" />
+              <span class="logo-word">${BRAND.name}</span>
             </a>
           </div>
           <nav class="nav-links">
@@ -270,7 +274,8 @@ function renderShell(content) {
             <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer" class="nav-link">Faucet</a>
           </nav>
           <div class="nav-actions">
-            <a href="${LINKS.x}" target="_blank" rel="noreferrer" class="nav-x">@hoodchainswap</a>
+            <a href="${LINKS.launchpad}" target="_blank" rel="noreferrer" class="nav-link hide-mobile">Perps</a>
+            <a href="${LINKS.x}" target="_blank" rel="noreferrer" class="nav-x">@tradeperpex</a>
             <button class="btn-connect ${account ? "connected" : ""}" id="connect-btn">
               ${account ? shortAddr(account) : "Connect wallet"}
             </button>
@@ -283,8 +288,8 @@ function renderShell(content) {
       <div class="float-footer">
         <footer class="footer-bar">
           <div>
-            <div class="footer-brand">hoodswap</div>
-            <div class="footer-tag">HoodSwap tracks Robinhood Chain — not affiliated with Robinhood Markets.</div>
+            <div class="footer-brand">${BRAND.name}</div>
+            <div class="footer-tag">${BRAND.name} swap on Robinhood Chain testnet — from the team behind tradeperpex.fun.</div>
           </div>
           <nav class="footer-nav">
             <a href="${LINKS.ethFaucet}" target="_blank" rel="noreferrer">ETH faucet</a>
@@ -317,8 +322,8 @@ function renderHome() {
     <div class="home">
       <section class="home-hero">
         <div class="home-headline">
-          <p class="home-headline-kicker">First on this chain</p>
-          <h1>Be the first to swap RWAs on Robinhood Chain</h1>
+          <p class="home-headline-kicker">Perpex · Robinhood Chain</p>
+          <h1>Swap tokenized stocks. No gatekeepers.</h1>
         </div>
       </section>
 
@@ -425,27 +430,27 @@ function renderHome() {
 
     <section class="explain">
       <div class="explain-head">
-        <h2 class="explain-title">Tokenized stocks, onchain</h2>
-        <p class="explain-lead">Real equities as ERC-20 tokens on Robinhood Chain testnet. Swap against USDG in seconds.</p>
+        <h2 class="explain-title">Stonks, onchain</h2>
+        <p class="explain-lead">Real equities as ERC-20 tokens on Robinhood Chain testnet. Swap against USDG through Perpex in seconds.</p>
       </div>
       <div class="explain-grid">
         <article class="explain-card">
           <div class="explain-card-illu">
-            <svg width="120" height="56" viewBox="0 0 120 56" fill="none"><rect x="8" y="8" width="40" height="40" rx="10" fill="#040404" fill-opacity="0.08"/><text x="28" y="34" text-anchor="middle" fill="#040404" font-size="12" font-weight="600">TSLA</text><rect x="72" y="8" width="40" height="40" rx="10" fill="#00C805" fill-opacity="0.12" stroke="#00C805"/><text x="92" y="34" text-anchor="middle" fill="#00C805" font-size="12" font-weight="600">USDG</text></svg>
+            <svg width="120" height="56" viewBox="0 0 120 56" fill="none"><rect x="8" y="8" width="40" height="40" rx="10" fill="#0c1626" fill-opacity="0.08"/><text x="28" y="34" text-anchor="middle" fill="#0c1626" font-size="12" font-weight="600">TSLA</text><rect x="72" y="8" width="40" height="40" rx="10" fill="${ACCENT}" fill-opacity="0.12" stroke="${ACCENT}"/><text x="92" y="34" text-anchor="middle" fill="${ACCENT}" font-size="12" font-weight="600">USDG</text></svg>
           </div>
           <h3>Stock tokens</h3>
           <p>Real equities like TSLA and AMZN exist as ERC-20 tokens on Robinhood Chain testnet.</p>
         </article>
         <article class="explain-card">
           <div class="explain-card-illu">
-            <svg width="80" height="56" viewBox="0 0 80 56" fill="none"><path d="M8 40 L24 28 L40 32 L56 16 L72 20" stroke="#00C805" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg width="80" height="56" viewBox="0 0 80 56" fill="none"><path d="M8 40 L24 28 L40 32 L56 16 L72 20" stroke="${ACCENT}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
           <h3>How the swap works</h3>
           <p>Each stock pairs with USDG. Pay one side, the pool calculates the rate, receive the other instantly.</p>
         </article>
         <article class="explain-card">
           <div class="explain-card-illu">
-            <svg width="80" height="56" viewBox="0 0 80 56" fill="none"><rect x="16" y="12" width="48" height="32" rx="8" stroke="#040404" stroke-opacity="0.2"/><path d="M28 28h24" stroke="#00C805" stroke-width="3" stroke-linecap="round"/></svg>
+            <svg width="80" height="56" viewBox="0 0 80 56" fill="none"><rect x="16" y="12" width="48" height="32" rx="8" stroke="#0c1626" stroke-opacity="0.2"/><path d="M28 28h24" stroke="${ACCENT}" stroke-width="3" stroke-linecap="round"/></svg>
           </div>
           <h3>No sign-up</h3>
           <p>Connect any EVM wallet on Robinhood Chain testnet. Self-custodied from the first swap.</p>
@@ -516,8 +521,8 @@ function bindHomeEvents() {
 }
 
 const DOCS_PAGES = {
-  "/docs": { title: "HoodSwap docs", lead: "Everything you need to run swaps on Robinhood Chain testnet.", render: docsOverview },
-  "/docs/how-to-use": { title: "How to use HoodSwap", lead: "Connect, pick a stock, swap.", render: docsHowTo },
+  "/docs": { title: "Perpex docs", lead: "Everything you need to swap tokenized stocks on Robinhood Chain testnet.", render: docsOverview },
+  "/docs/how-to-use": { title: "How to use Perpex Swap", lead: "Connect, pick a stock, swap.", render: docsHowTo },
   "/docs/tokens": { title: "Tokens", lead: "Official testnet token addresses on Robinhood Chain.", render: docsTokens },
   "/docs/architecture": { title: "Architecture", lead: "Constant-product AMM for tokenized stocks.", render: docsArchitecture },
   "/docs/liquidity": { title: "Liquidity", lead: "Seed pools so swaps can execute.", render: docsLiquidity },
@@ -567,8 +572,8 @@ function renderDocs() {
 
 function docsOverview() {
   return `
-    <p>HoodSwap lets you swap tokenized stocks against USDG on Robinhood Chain testnet. No sign up. Just a wallet and test tokens.</p>
-    <div class="docs-callout"><strong>First on every network.</strong> HoodSwap is a community testnet demo for swapping RWAs on Robinhood Chain.</div>
+    <p>Perpex Swap lets you exchange tokenized stocks against USDG on Robinhood Chain testnet. No sign up. Just a wallet and test tokens.</p>
+    <div class="docs-callout"><strong>From the Perpex team.</strong> Same permissionless ethos as tradeperpex.fun — now for spot RWAs on Robinhood Chain.</div>
     <h2>What you need</h2>
     <ul>
       <li><strong>ETH</strong> for gas (always)</li>
@@ -626,7 +631,7 @@ function docsTokens() {
 
 function docsArchitecture() {
   return `
-    <p>HoodSwap is a minimal AMM for swapping tokenized stocks against USDG on Robinhood Chain testnet.</p>
+    <p>Perpex Swap is a minimal AMM for swapping tokenized stocks against USDG on Robinhood Chain testnet.</p>
     <h2>Mechanics</h2>
     <ul>
       <li>Constant-product AMM (<code>x·y=k</code>) with a <strong>0.3% swap fee</strong></li>
@@ -636,7 +641,7 @@ function docsArchitecture() {
       <li><code>getPool</code> / <code>getAmountOut</code> — read reserves and quotes</li>
     </ul>
     <h2>Frontend</h2>
-    <p>Static web app with ethers.js, Rainbow-compatible wallet connect, and direct contract calls to HoodSwap.sol.</p>
+    <p>Static web app with ethers.js, EVM wallet connect, and direct contract calls to the on-chain swap contract.</p>
   `;
 }
 
@@ -650,7 +655,7 @@ function docsLiquidity() {
     </ol>
     <h3>Example seed</h3>
     <p>Example above seeds 0.1 TSLA and 10 USDG. Adjust amounts per pool. Repeat for each stock you want live.</p>
-    <pre class="docs-code"># Foundry example (see HoodSwap repo)
+    <pre class="docs-code"># Foundry example (see Perpex repo)
 export STOCK_AMOUNT=100000000000000000
 export USDG_AMOUNT=10000000000000000000
 forge script script/AddLiquidity.s.sol --broadcast</pre>
@@ -667,8 +672,8 @@ function docsContract() {
       <div class="docs-card"><div class="docs-card-label">Chain ID</div><div class="docs-card-value"><code>${CHAIN.id}</code></div></div>
     </div>
     <p><a href="${CHAIN.explorer}/address/${CONTRACT.address}" target="_blank" rel="noreferrer">View on explorer →</a></p>
-    <p>Source: <a href="${CONTRACT.source}" target="_blank" rel="noreferrer">HoodSwap.sol on GitHub</a></p>
-    <div class="docs-callout warn">HoodSwap is a community testnet demo. Stock tokens and USDG are test assets. Not affiliated with Robinhood Markets.</div>
+    <p>Source: <a href="${CONTRACT.source}" target="_blank" rel="noreferrer">Perpex on GitHub</a></p>
+    <div class="docs-callout warn">Perpex Swap is a testnet demo. Stock tokens and USDG are test assets on Robinhood Chain — not affiliated with Robinhood Markets.</div>
   `;
 }
 
