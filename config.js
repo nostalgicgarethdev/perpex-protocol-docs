@@ -38,7 +38,6 @@ export const LINKS = {
   ethFaucet: "https://faucet.testnet.chain.robinhood.com/",
   paxosFaucet: "https://faucet.paxos.com/?network=robinhood",
   chainDocs: "https://docs.robinhood.com/chain/",
-  perps: "https://tradeperpex.fun/launchpad",
 };
 
 export const SLIPPAGE_BPS = 50;

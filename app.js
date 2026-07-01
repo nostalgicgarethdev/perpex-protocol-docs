@@ -272,7 +272,6 @@ function renderShell(content) {
         <nav class="topnav">
           <a href="#/" class="topnav-link ${path === "/" ? "active" : ""}">Markets</a>
           <a href="#/docs" class="topnav-link ${isDocs ? "active" : ""}">Docs</a>
-          <a href="${LINKS.perps}" class="topnav-link">Perps</a>
         </nav>
         <div class="topbar-end">
           <span class="chain-pill">${CHAIN.name}</span>
